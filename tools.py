@@ -53,8 +53,12 @@ def generate_npc(role=None, race=None, save=True):
     return n
 
 
-def generate_loot(party_level=3, hoard=False):
-    return engine.make_loot(party_level, hoard)
+def generate_loot(party_level=3, hoard=False, save=True):
+    loot = engine.make_loot(party_level, hoard)
+    if save:
+        loot["name"] = f"{'Hoard' if hoard else 'Loot'} (level {loot['party_level']})"
+        loot["id"] = db.save_item("loot", loot["name"], loot)
+    return loot
 
 
 def save_note(title, text):
@@ -65,11 +69,12 @@ def save_note(title, text):
 
 def campaign_state():
     out = {"type": "state"}
-    for kind in ("character", "npc", "encounter", "note", "print"):
+    for kind in ("character", "npc", "encounter", "loot", "note", "print"):
         out[kind] = [{"id": i["id"], "name": i["name"],
                       "summary": (f"L{i.get('level')} {i.get('race')} {i.get('class')}" if kind == "character" else
                                   f"{i.get('race')} {i.get('role')}" if kind == "npc" else
                                   f"{i.get('difficulty')} ({sum(m['count'] for m in i.get('monsters', []))} foes)" if kind == "encounter" else
+                                  f"{i.get('gp')} gp, {len(i.get('items', []))} items" if kind == "loot" else
                                   i.get("status", "") if kind == "print" else (i.get("text", "")[:60]))}
                      for i in db.list_items(kind, 30)]
     out["party"] = [{"id": m["id"], "name": m["name"]} for m in party_members()]  # not limited to the 30 newest heroes above
@@ -319,7 +324,7 @@ TOOL_SCHEMAS = [
                           ["party_level", "party_size"])},
     {"name": "generate_npc", "description": "Create an NPC with a secret, a want, a voice and an attitude, and save it.",
      "input_schema": _obj({"role": {"type": "string"}, "race": {"type": "string", "enum": list(engine.RACES)}})},
-    {"name": "generate_loot", "description": "Roll treasure for a party level. hoard=true for a big haul.",
+    {"name": "generate_loot", "description": "Roll treasure for a party level and save it to the Archive. hoard=true for a big haul.",
      "input_schema": _obj({"party_level": {"type": "integer"}, "hoard": {"type": "boolean"}}, ["party_level"])},
     {"name": "save_note", "description": "Save a campaign note (session recap, plot thread, lore) to the Archive.",
      "input_schema": _obj({"title": {"type": "string"}, "text": {"type": "string"}}, ["title", "text"])},

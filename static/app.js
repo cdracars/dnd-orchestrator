@@ -8,7 +8,7 @@ const cid = store.get('cid') || (() => { const v = (crypto.randomUUID && crypto.
 const AB = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
 const KINDS = [
   { k: 'party', label: 'Party', icon: '🛡️' }, { k: 'character', label: 'Heroes', icon: '🧙' }, { k: 'npc', label: 'NPCs', icon: '🍺' },
-  { k: 'encounter', label: 'Foes', icon: '⚔️' }, { k: 'note', label: 'Notes', icon: '🪶' }, { k: 'print', label: 'Forge', icon: '🖨️' },
+  { k: 'encounter', label: 'Foes', icon: '⚔️' }, { k: 'loot', label: 'Loot', icon: '💰' }, { k: 'note', label: 'Notes', icon: '🪶' }, { k: 'print', label: 'Forge', icon: '🖨️' },
 ];
 const COMBAT_TOOLS = ['start_combat', 'next_turn', 'combat_hp', 'combat_condition', 'end_combat'];
 let kind = 'party', agents = {}, advMode = 'none', rollHistory = [];
@@ -58,7 +58,7 @@ function characterCard(c) {
     ${sp ? `<h4>Spellcasting (${sp.ability})</h4><div class="pillrow"><span class="pill gold">Save DC ${sp.save_dc}</span><span class="pill gold">Attack ${sgn(sp.attack)}</span>${slots}</div>` : ''}
     <h4>Saves &amp; Skills</h4>
     <div class="pillrow">${AB.filter(a => c.saves[a].prof).map(a => `<span class="pill gold">${a.toUpperCase()} save ${sgn(c.saves[a].bonus)}</span>`).join('')}
-      ${c.skills.filter(s => s.prof).map(s => `<span class="pill">${esc(s.name)} ${sgn(s.bonus)}</span>`).join('')}<span class="pill">Passive Perception ${c.passive_perception}</span></div>
+      ${c.skills.filter(s => s.prof || s.bonus !== c.abilities[s.ability].mod).map(s => `<span class="pill${s.expertise ? ' gold' : ''}"${s.prof ? '' : ' title="Jack of All Trades"'}>${esc(s.name)} ${sgn(s.bonus)}${s.expertise ? ' ★' : ''}</span>`).join('')}<span class="pill">Passive Perception ${c.passive_perception}</span></div>
     <h4>Features</h4>${pills([...c.racial_traits, ...c.features])}
     <h4>Gear</h4>${pills(c.equipment)}
     <h4>Backstory</h4><p>${esc(c.backstory.origin)} ${esc(c.backstory.hook)} ${esc(c.backstory.bond)}</p><p><em>${esc(c.backstory.flaw)}</em></p>
@@ -104,7 +104,10 @@ function lootCard(l) {
 
 function rollCard(r) {
   const cls = r.crit ? 'crit' : r.fumble ? 'fumble' : '';
-  const dice = r.dice.map(d => `<span class="die ${r.kept.includes(d) ? '' : 'drop'}">${d}</span>`).join('');
+  const pool = [...r.kept];  // match kept dice one-for-one so duplicates (4d6kh3 → 4,4,4,2) drop the right one
+  const die = (d, keep) => `<span class="die ${keep ? '' : 'drop'}">${d}</span>`;
+  const dice = r.dice.map(d => { const i = pool.indexOf(d); if (i >= 0) pool.splice(i, 1); return die(d, i >= 0); }).join('')
+    + (r.discarded || []).map(d => die(d, false)).join('');
   return `<div class="card"><div class="rollcard ${cls}"><div class="big">${r.total}</div><div>
     <div><b>${esc(r.expr)}</b>${r.advantage !== 'none' ? ` · ${r.advantage === 'adv' ? 'advantage' : 'disadvantage'}` : ''}${r.reason ? ' · ' + esc(r.reason) : ''}</div>
     <div>${dice}${r.modifier ? `<span class="die">${sgn(r.modifier)}</span>` : ''}</div>
@@ -122,8 +125,8 @@ function printCard(j) {
 function stateCard(s) {
   const sec = (label, arr) => arr.length ? `<h4>${label}</h4>${arr.map(i => `<div class="kv"><span>${esc(i.name)} <small style="color:var(--mute)">#${i.id}</small></span><span style="color:var(--mute)">${esc(i.summary)}</span></div>`).join('')}` : '';
   const party = (s.party || []).map(m => m.name);
-  return `<div class="card"><h3>📚 Campaign at a glance</h3>${party.length ? `<h4>Party</h4>${pills(party)}` : ''}${sec('Heroes', s.character)}${sec('NPCs', s.npc)}${sec('Encounters', s.encounter)}${sec('Notes', s.note)}${sec('Print jobs', s.print)}
-    ${[s.character, s.npc, s.encounter, s.note, s.print].every(a => !a.length) ? '<p style="color:var(--mute)">The Archive is empty. Ask me to build something!</p>' : ''}</div>`;
+  return `<div class="card"><h3>📚 Campaign at a glance</h3>${party.length ? `<h4>Party</h4>${pills(party)}` : ''}${sec('Heroes', s.character)}${sec('NPCs', s.npc)}${sec('Encounters', s.encounter)}${sec('Loot', s.loot)}${sec('Notes', s.note)}${sec('Print jobs', s.print)}
+    ${[s.character, s.npc, s.encounter, s.loot, s.note, s.print].every(a => !a.length) ? '<p style="color:var(--mute)">The Archive is empty. Ask me to build something!</p>' : ''}</div>`;
 }
 
 /* ------------------------------------------------------------ chat */
@@ -171,7 +174,7 @@ $('#quick').addEventListener('click', e => { const b = e.target.closest('button'
 /* ------------------------------------------------------------ archive */
 const SUB = {
   character: i => `L${i.level} ${i.race} ${i.class}${i.in_party ? ' · 🛡️ party' : ''}`, party: i => `L${i.level} ${i.race} ${i.class}`, npc: i => `${i.race} ${i.role}`,
-  encounter: i => `${i.difficulty} · ${i.monsters.reduce((a, m) => a + m.count, 0)} foes`, note: i => (i.text || '').slice(0, 40), print: i => i.status,
+  encounter: i => `${i.difficulty} · ${i.monsters.reduce((a, m) => a + m.count, 0)} foes`, loot: i => `${i.gp.toLocaleString()} gp · ${i.items.length} items`, note: i => (i.text || '').slice(0, 40), print: i => i.status,
 };
 function renderTabs() {
   $('#libTabs').innerHTML = KINDS.map(k => `<button data-k="${k.k}" class="${k.k === kind ? 'on' : ''}">${k.icon} ${k.label}</button>`).join('');
@@ -204,13 +207,13 @@ document.addEventListener('click', async e => {
   const b = e.target.closest('[data-act]'); if (!b) return;
   const a = b.dataset.act;
   try {
-    if (a === 'combat') { const r = await runTool('start_combat', { encounter_id: +b.dataset.id, include_party: true }); toast(r.type === 'error' ? '⚠️ ' + r.message : '🛡️ Initiative rolled!'); showView('table'); }
+    if (a === 'combat') { const r = await runTool('start_combat', { encounter_id: +b.dataset.id, include_party: true }); toast(r.type === 'error' ? '⚠️ ' + esc(r.message) : '🛡️ Initiative rolled!'); showView('table'); }
     if (a === 'party-add' || a === 'party-remove') { const r = await runTool(a.replace('-', '_'), { character: +b.dataset.id }); toast(r.type === 'error' ? '⚠️ ' + r.message : '🛡️ ' + esc(r.event)); $('#modal').close?.(); }
     if (a === 'loot') addCards([await runTool('generate_loot', { party_level: +b.dataset.lvl })]);
     if (a === 'print') { const j = await runTool('queue_print', { item_name: b.dataset.name, item_type: b.dataset.type || 'miniature', source_id: b.dataset.id ? +b.dataset.id : null }); toast('🖨️ Queued: ' + j.name); }
     if (a === 'pstatus') { await runTool('set_print_status', { id: +b.dataset.id, status: b.dataset.s }); $('#modal').close?.(); }
     loadLibrary();
-  } catch (err) { toast('⚠️ ' + err.message); }
+  } catch (err) { toast('⚠️ ' + esc(err.message)); }
 });
 
 /* ------------------------------------------------------------ dice */
@@ -222,12 +225,19 @@ $('#who').value = store.get('who') || '';
 $('#who').addEventListener('change', () => store.set('who', $('#who').value));
 
 async function rollUi(sides) {
-  const n = Math.max(1, Math.min(20, +$('#dCount').value || 1)), m = +$('#dMod').value || 0;
+  const n = Math.max(1, Math.min(100, +$('#dCount').value || 1)), m = +$('#dMod').value || 0;
   const expr = `${n}d${sides}${m ? (m > 0 ? '+' + m : m) : ''}`;
+  let adv = advMode;
+  if (adv !== 'none' && !(n === 1 && sides === 20)) { adv = 'none'; toast('Advantage only applies to a single d20, so I rolled normally.'); }
   startTumble();
-  const r = await runTool('roll_dice', { expression: expr, advantage: advMode });
-  if (r.type === 'error') { toast('⚠️ ' + r.message); return; }
-  landDie(r, true);
+  try {
+    const r = await runTool('roll_dice', { advantage: adv, expression: expr });
+    if (r.type === 'error') throw new Error(r.message);
+    landDie(r, true);
+  } catch (e) {
+    clearInterval(tumbling); $('#bigDie').classList.remove('rolling');  // don't leave the die tumbling forever
+    toast('⚠️ ' + esc(e.message));
+  }
 }
 let tumbling = null;
 function startTumble() {
@@ -260,7 +270,7 @@ async function loadCombat() {
     $('#startBtn').onclick = async () => {
       const encs = await api('/api/items?kind=encounter');
       const r = await runTool('start_combat', { encounter_id: encs[0]?.id || null, include_party: true });
-      if (r.type === 'error') toast('⚠️ ' + r.message); loadCombat();
+      if (r.type === 'error') toast('⚠️ ' + esc(r.message)); loadCombat();
     };
     return;
   }
@@ -279,7 +289,7 @@ $('#combat').addEventListener('click', async e => {
   const hp = e.target.closest('[data-hp]'), cond = e.target.closest('[data-cond]');
   if (hp) {
     const v = parseInt(prompt(hp.dataset.hp === '-' ? `Damage to ${hp.dataset.n}?` : `Heal ${hp.dataset.n} by?`), 10);
-    if (v > 0) { const r = await runTool('combat_hp', { target: hp.dataset.n, delta: hp.dataset.hp === '-' ? -v : v }); if (r.type === 'error') toast('⚠️ ' + r.message); loadCombat(); }
+    if (v > 0) { const r = await runTool('combat_hp', { target: hp.dataset.n, delta: hp.dataset.hp === '-' ? -v : v }); if (r.type === 'error') toast('⚠️ ' + esc(r.message)); loadCombat(); }
   }
   if (cond) {
     const c = prompt(`Toggle condition on ${cond.dataset.cond} (e.g. prone, stunned):`); if (!c) return;
