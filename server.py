@@ -91,9 +91,15 @@ def status():
             "ips": lan_ips(), "port": PORT, "print_webhook": bool(os.environ.get("PRINT_WEBHOOK_URL"))}
 
 
+def _with_party(i):
+    if i.get("type") == "character":
+        i["in_party"] = i["id"] in (db.get_state("party") or [])
+    return i
+
+
 @app.get("/api/items")
 def items(kind: str = None):
-    return db.list_items(kind)
+    return [_with_party(i) for i in db.list_items(kind)]
 
 
 @app.get("/api/items/{item_id}")
@@ -101,7 +107,12 @@ def item(item_id: int):
     i = db.get_item(item_id)
     if not i:
         raise HTTPException(404, "Not found")
-    return i
+    return _with_party(i)
+
+
+@app.get("/api/party")
+def party():
+    return [_with_party(m) for m in tools.party_members()]
 
 
 @app.delete("/api/items/{item_id}")

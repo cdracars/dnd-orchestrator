@@ -7,11 +7,11 @@ const store = { get: k => { try { return localStorage.getItem(k); } catch { retu
 const cid = store.get('cid') || (() => { const v = (crypto.randomUUID && crypto.randomUUID()) || String(Math.random()).slice(2) + Date.now(); store.set('cid', v); return v; })();
 const AB = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
 const KINDS = [
-  { k: 'character', label: 'Heroes', icon: '🧙' }, { k: 'npc', label: 'NPCs', icon: '🍺' },
+  { k: 'party', label: 'Party', icon: '🛡️' }, { k: 'character', label: 'Heroes', icon: '🧙' }, { k: 'npc', label: 'NPCs', icon: '🍺' },
   { k: 'encounter', label: 'Foes', icon: '⚔️' }, { k: 'note', label: 'Notes', icon: '🪶' }, { k: 'print', label: 'Forge', icon: '🖨️' },
 ];
 const COMBAT_TOOLS = ['start_combat', 'next_turn', 'combat_hp', 'combat_condition', 'end_combat'];
-let kind = 'character', agents = {}, advMode = 'none', rollHistory = [];
+let kind = 'party', agents = {}, advMode = 'none', rollHistory = [];
 
 /* ------------------------------------------------------------ api */
 async function api(path, opts = {}) {
@@ -31,6 +31,7 @@ const pills = a => `<div class="pillrow">${(a || []).map(x => `<span class="pill
 function renderCard(c) {
   switch (c.type) {
     case 'character': return characterCard(c);
+    case 'party': return partyCard(c);
     case 'npc': return npcCard(c);
     case 'encounter': return encounterCard(c);
     case 'loot': return lootCard(c);
@@ -61,8 +62,15 @@ function characterCard(c) {
     <h4>Features</h4>${pills([...c.racial_traits, ...c.features])}
     <h4>Gear</h4>${pills(c.equipment)}
     <h4>Backstory</h4><p>${esc(c.backstory.origin)} ${esc(c.backstory.hook)} ${esc(c.backstory.bond)}</p><p><em>${esc(c.backstory.flaw)}</em></p>
-    <div class="actions"><button class="btn2" data-act="print" data-name="${esc(c.name)}" data-id="${c.id || ''}" data-type="miniature">🖨️ Queue mini</button></div>
+    <div class="actions">${c.id ? (c.in_party ? `<button class="btn2" data-act="party-remove" data-id="${c.id}">🛡️ Remove from party</button>` : `<button class="btn2 hot" data-act="party-add" data-id="${c.id}">🛡️ Add to party</button>`) : ''}
+      <button class="btn2" data-act="print" data-name="${esc(c.name)}" data-id="${c.id || ''}" data-type="miniature">🖨️ Queue mini</button></div>
   </div>`;
+}
+
+function partyCard(p) {
+  return `<div class="card"><h3>🛡️ ${esc(p.event || 'The party')}</h3>
+    ${p.members.length ? p.members.map(m => `<div class="kv"><span>${esc(m.name)} <small style="color:var(--mute)">L${m.level} ${esc(m.race)} ${esc(m['class'])}</small></span><span style="color:var(--mute)">${m.hp} HP · AC ${m.ac}</span></div>`).join('')
+      : '<p style="color:var(--mute)">No one yet. Open a hero in the Archive and tap “Add to party”.</p>'}</div>`;
 }
 
 function npcCard(n) {
@@ -113,7 +121,8 @@ function printCard(j) {
 
 function stateCard(s) {
   const sec = (label, arr) => arr.length ? `<h4>${label}</h4>${arr.map(i => `<div class="kv"><span>${esc(i.name)} <small style="color:var(--mute)">#${i.id}</small></span><span style="color:var(--mute)">${esc(i.summary)}</span></div>`).join('')}` : '';
-  return `<div class="card"><h3>📚 Campaign at a glance</h3>${sec('Heroes', s.character)}${sec('NPCs', s.npc)}${sec('Encounters', s.encounter)}${sec('Notes', s.note)}${sec('Print jobs', s.print)}
+  const party = (s.party || []).map(id => (s.character.find(c => c.id === id) || {}).name).filter(Boolean);
+  return `<div class="card"><h3>📚 Campaign at a glance</h3>${party.length ? `<h4>Party</h4>${pills(party)}` : ''}${sec('Heroes', s.character)}${sec('NPCs', s.npc)}${sec('Encounters', s.encounter)}${sec('Notes', s.note)}${sec('Print jobs', s.print)}
     ${[s.character, s.npc, s.encounter, s.note, s.print].every(a => !a.length) ? '<p style="color:var(--mute)">The Archive is empty. Ask me to build something!</p>' : ''}</div>`;
 }
 
@@ -161,7 +170,7 @@ $('#quick').addEventListener('click', e => { const b = e.target.closest('button'
 
 /* ------------------------------------------------------------ archive */
 const SUB = {
-  character: i => `L${i.level} ${i.race} ${i.class}`, npc: i => `${i.race} ${i.role}`,
+  character: i => `L${i.level} ${i.race} ${i.class}${i.in_party ? ' · 🛡️ party' : ''}`, party: i => `L${i.level} ${i.race} ${i.class}`, npc: i => `${i.race} ${i.role}`,
   encounter: i => `${i.difficulty} · ${i.monsters.reduce((a, m) => a + m.count, 0)} foes`, note: i => (i.text || '').slice(0, 40), print: i => i.status,
 };
 function renderTabs() {
@@ -169,15 +178,18 @@ function renderTabs() {
 }
 async function loadLibrary() {
   renderTabs();
-  const items = await api('/api/items?kind=' + kind).catch(() => []);
+  const items = await api(kind === 'party' ? '/api/party' : '/api/items?kind=' + kind).catch(() => []);
   const k = KINDS.find(x => x.k === kind);
   $('#libList').innerHTML = items.length ? items.map(i => `<div class="item" data-id="${i.id}"><span class="ic">${k.icon}</span>
-    <div class="tx"><div class="nm">${esc(i.name)}</div><div class="sb">${esc(SUB[kind](i))}</div></div><button class="del" data-del="${i.id}" title="Delete">✕</button></div>`).join('')
+    <div class="tx"><div class="nm">${esc(i.name)}</div><div class="sb">${esc(SUB[kind](i))}</div></div>${kind === 'party' ? `<button class="del" data-unparty="${i.id}" title="Remove from party">−</button>` : `<button class="del" data-del="${i.id}" title="Delete">✕</button>`}</div>`).join('')
+    : kind === 'party' ? `<div class="empty">No party yet.<br>Open a hero in <b>Heroes</b> and tap “Add to party”.</div>`
     : `<div class="empty">Nothing here yet.<br>Ask the Orchestrator to conjure some ${k.label.toLowerCase()}!</div>`;
   $('#libList')._items = Object.fromEntries(items.map(i => [i.id, i]));
 }
 $('#libTabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { kind = b.dataset.k; loadLibrary(); } });
 $('#libList').addEventListener('click', async e => {
+  const unp = e.target.closest('[data-unparty]');
+  if (unp) { e.stopPropagation(); await runTool('party_remove', { character: +unp.dataset.unparty }); loadLibrary(); return; }
   const del = e.target.closest('[data-del]');
   if (del) { e.stopPropagation(); if (confirm('Delete this from the Archive?')) { await api('/api/items/' + del.dataset.del, { method: 'DELETE' }); loadLibrary(); } return; }
   const it = e.target.closest('.item');
@@ -193,6 +205,7 @@ document.addEventListener('click', async e => {
   const a = b.dataset.act;
   try {
     if (a === 'combat') { const r = await runTool('start_combat', { encounter_id: +b.dataset.id, include_party: true }); toast(r.type === 'error' ? '⚠️ ' + r.message : '🛡️ Initiative rolled!'); showView('table'); }
+    if (a === 'party-add' || a === 'party-remove') { const r = await runTool(a.replace('-', '_'), { character: +b.dataset.id }); toast(r.type === 'error' ? '⚠️ ' + r.message : '🛡️ ' + esc(r.event)); $('#modal').close?.(); }
     if (a === 'loot') addCards([await runTool('generate_loot', { party_level: +b.dataset.lvl })]);
     if (a === 'print') { const j = await runTool('queue_print', { item_name: b.dataset.name, item_type: b.dataset.type || 'miniature', source_id: b.dataset.id ? +b.dataset.id : null }); toast('🖨️ Queued: ' + j.name); }
     if (a === 'pstatus') { await runTool('set_print_status', { id: +b.dataset.id, status: b.dataset.s }); $('#modal').close?.(); }

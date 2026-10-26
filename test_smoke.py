@@ -43,8 +43,16 @@ with TestClient(server.app) as client:
         assert chat("loot level 6 hoard")["cards"][0]["type"] == "loot"
         assert chat("roll 2d6+3")["cards"][0]["type"] == "roll"
         assert chat("note: Crypt hook - the bell tolls thrice")["cards"][0]["type"] == "note"
+        # party is separate from the Archive: an unrecruited hero must not join combat
+        assert chat("character level 2 human fighter")["cards"][0]["in_party"] is False
+        assert chat("party")["cards"][0]["members"] == []
+        solo = chat("start combat")["cards"][0]
+        assert solo["active"] and not any(c["side"] == "party" for c in solo["combatants"])
+        chat("end combat")
+        assert chat(f"add {hero['name']} to the party")["cards"][0]["members"][0]["id"] == hero["id"]
+        assert [m["id"] for m in client.get("/api/party").json()] == [hero["id"]]
         combat = chat("start combat")["cards"][0]
-        assert combat["active"] and any(c["side"] == "party" for c in combat["combatants"])
+        assert combat["active"] and [c["name"] for c in combat["combatants"] if c["side"] == "party"] == [hero["name"]]
         foe = next(c for c in combat["combatants"] if c["side"] == "foe")
         hit = client.post("/api/tool/combat_hp", json={"args": {"target": foe["name"], "delta": -5}}).json()
         assert hit["type"] == "combat"
@@ -54,8 +62,9 @@ with TestClient(server.app) as client:
         assert client.post("/api/tool/set_print_status", json={"args": {"id": job["id"], "status": "printing"}}).json()["status"] == "printing"
         assert client.post("/api/tool/combat_hp", json={"args": {"target": "nobody", "delta": 1}}).json()["type"] == "error"
         assert chat("end combat")["cards"][0]["active"] is False
+        assert chat(f"remove {hero['name']} from the party")["cards"][0]["members"] == []
         state = chat("what do we have")["cards"][0]
-        assert state["type"] == "state" and state["character"] and state["encounter"]
+        assert state["type"] == "state" and state["character"] and state["encounter"] and state["party"] == []
         assert "offline" in chat("gibberish")["reply"].lower()
         seen = set()
         for _ in range(60):
@@ -65,6 +74,7 @@ with TestClient(server.app) as client:
                 break
         assert {"tool", "tool_start", "thinking"} <= seen, seen
     items = client.get("/api/items?kind=character").json()
-    assert len(items) == 1
-    assert client.delete(f"/api/items/{items[0]['id']}").json()["ok"]
+    assert len(items) == 2 and not any(i["in_party"] for i in items)
+    for i in items:
+        assert client.delete(f"/api/items/{i['id']}").json()["ok"]
 print("ALL SMOKE TESTS PASSED")
