@@ -334,7 +334,7 @@ def make_character(name=None, race=None, character_class=None, level=1, backgrou
     expert = set(random.sample(skill_prof, min(_expertise_count(cls_name, level), len(skill_prof))))
     jack = cls_name == "Bard" and level >= 2  # Jack of All Trades: half proficiency on everything else
     skills = [{"name": s, "bonus": mods[a] + (2 * prof if s in expert else prof if s in skill_prof else prof // 2 if jack else 0),
-               "prof": s in skill_prof, "expertise": s in expert}
+               "prof": s in skill_prof, "expertise": s in expert, "ability": a}
               for s, a in sorted(SKILLS.items())]
     perception = next(s["bonus"] for s in skills if s["name"] == "Perception")
 
@@ -379,7 +379,8 @@ def make_character(name=None, race=None, character_class=None, level=1, backgrou
     return {
         "type": "character", "name": name, "race": race, "class": cls_name, "level": level, "background": bg,
         "abilities": {a: {"score": scores[a], "mod": mods[a]} for a in ABILITIES},
-        "hp": hp, "ac": ac, "ac_note": acs["label"], "speed": rc["speed"] + _speed_bonus(cls_name, level), "initiative": mods["dex"], "proficiency": prof,
+        "hp": hp, "ac": ac, "ac_note": acs["label"], "speed": rc["speed"] + _speed_bonus(cls_name, level),
+        "initiative": mods["dex"] + (prof // 2 if jack else 0), "proficiency": prof,
         "saves": saves, "skills": skills, "passive_perception": 10 + perception, "attacks": attacks,
         "features": features, "racial_traits": rc["traits"], "spellcasting": spell,
         "equipment": cls["gear"], "backstory": backstory, "concept": concept or "",

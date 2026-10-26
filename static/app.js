@@ -57,7 +57,7 @@ function characterCard(c) {
     ${sp ? `<h4>Spellcasting (${sp.ability})</h4><div class="pillrow"><span class="pill gold">Save DC ${sp.save_dc}</span><span class="pill gold">Attack ${sgn(sp.attack)}</span>${slots}</div>` : ''}
     <h4>Saves &amp; Skills</h4>
     <div class="pillrow">${AB.filter(a => c.saves[a].prof).map(a => `<span class="pill gold">${a.toUpperCase()} save ${sgn(c.saves[a].bonus)}</span>`).join('')}
-      ${c.skills.filter(s => s.prof).map(s => `<span class="pill${s.expertise ? ' gold' : ''}">${esc(s.name)} ${sgn(s.bonus)}${s.expertise ? ' ★' : ''}</span>`).join('')}<span class="pill">Passive Perception ${c.passive_perception}</span></div>
+      ${c.skills.filter(s => s.prof || s.bonus !== c.abilities[s.ability].mod).map(s => `<span class="pill${s.expertise ? ' gold' : ''}"${s.prof ? '' : ' title="Jack of All Trades"'}>${esc(s.name)} ${sgn(s.bonus)}${s.expertise ? ' ★' : ''}</span>`).join('')}<span class="pill">Passive Perception ${c.passive_perception}</span></div>
     <h4>Features</h4>${pills([...c.racial_traits, ...c.features])}
     <h4>Gear</h4>${pills(c.equipment)}
     <h4>Backstory</h4><p>${esc(c.backstory.origin)} ${esc(c.backstory.hook)} ${esc(c.backstory.bond)}</p><p><em>${esc(c.backstory.flaw)}</em></p>
