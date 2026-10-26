@@ -40,7 +40,8 @@ with TestClient(server.app) as client:
         enc = chat("encounter level 3 party of 4 hard undead")["cards"][0]
         assert enc["type"] == "encounter" and enc["id"]
         assert chat("npc innkeeper")["cards"][0]["role"] == "innkeeper"
-        assert chat("loot level 6 hoard")["cards"][0]["type"] == "loot"
+        loot = chat("loot level 6 hoard")["cards"][0]
+        assert loot["type"] == "loot" and loot["id"]
         assert chat("roll 2d6+3")["cards"][0]["type"] == "roll"
         assert chat("note: Crypt hook - the bell tolls thrice")["cards"][0]["type"] == "note"
         combat = chat("start combat")["cards"][0]
@@ -67,4 +68,16 @@ with TestClient(server.app) as client:
     items = client.get("/api/items?kind=character").json()
     assert len(items) == 1
     assert client.delete(f"/api/items/{items[0]['id']}").json()["ok"]
+
+# offline router: whole-word matching, longest race wins
+import agent  # noqa: E402
+
+route = lambda m: agent.offline_agent("t", m, "Tester", None)[1]  # noqa: E731
+assert route("character level 3 half-elf bard")[0]["race"] == "Half-Elf"
+assert route("character level 3 half orc fighter")[0]["race"] == "Half-Orc"
+assert route("send the party a message") == []
+assert route("my stranger friend") == []
+assert route("a house on the estate") == []
+assert route("two heroes please")[0]["type"] == "character"
+assert route("npc sage")[0]["role"] == "sage"
 print("ALL SMOKE TESTS PASSED")

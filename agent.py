@@ -82,6 +82,20 @@ THEME_WORDS = {"undead": "undead", "goblin": "goblinoid", "beast": "beast", "ani
                "humanoid": "humanoid"}
 
 
+def _has(pattern, t):
+    """Whole-word match so 'message' doesn't hit 'sage' and 'stranger' doesn't hit 'ranger'."""
+    return re.search(r"\b(?:" + pattern + r")(?:e?s)?\b", t) is not None
+
+
+def _first_word(options, t):
+    """Longest option present as a whole word, so 'half-elf' wins over 'elf'."""
+    norm = t.replace("-", " ")
+    for o in sorted(options, key=len, reverse=True):
+        if re.search(r"\b" + re.escape(o.lower().replace("-", " ")) + r"s?\b", norm):
+            return o
+    return None
+
+
 def _num(pattern, t, default):
     m = re.search(pattern, t)
     return int(next(g for g in m.groups() if g)) if m else default
@@ -102,39 +116,39 @@ def offline_agent(cid, text, who, emit):
         call("save_note", title=title.strip() or "Note", text=(body or title).strip())
         return "Inked into the Archive. 🪶", cards
     dice = re.search(r"\b(\d*d\d+(?:k[hl]\d+)?(?:[+-]\d+)*)\b", t)
-    if dice and ("roll" in t or re.fullmatch(r"\s*" + re.escape(dice.group(1)) + r"\s*", t)):
+    if dice and (_has("roll", t) or re.fullmatch(r"\s*" + re.escape(dice.group(1)) + r"\s*", t)):
         adv = "advantage" if "advantage" in t and "dis" not in t else "disadvantage" if "disadvantage" in t else "none"
         r = call("roll_dice", expression=dice.group(1), advantage=adv)
         return ("🌟 NATURAL 20!" if r.get("crit") else "💀 Natural 1..." if r.get("fumble") else "The dice have spoken."), cards
-    if re.search(r"end combat|stop combat", t):
+    if _has(r"end combat|stop combat", t):
         call("end_combat")
         return "Swords sheathed. For now.", cards
-    if re.search(r"next turn|next up|\bnext\b", t) and (db.get_state("combat") or {}).get("active"):
+    if re.search(r"\bnext (?:turn|up)\b|^next$", t) and (db.get_state("combat") or {}).get("active"):
         call("next_turn")
         return "Onward!", cards
-    if re.search(r"start combat|roll initiative|begin combat|initiative", t):
+    if _has(r"start combat|roll initiative|begin combat|initiative", t):
         enc = (db.list_items("encounter") or [None])[0]
         call("start_combat", encounter_id=enc["id"] if enc else None, include_party=True)
         return "Initiative rolled. Check the War Table! 🛡️", cards
-    if "encounter" in t or "ambush" in t:
+    if _has("encounter|ambush", t):
         size = _num(r"party of (\d+)|(\d+)\s*(?:players|pcs|heroes|adventurers)", t, 4)
-        diff = next((d for d in engine.DIFFS if d in t), "medium")
-        theme = next((v for k, v in THEME_WORDS.items() if k in t), "any")
+        diff = next((d for d in engine.DIFFS if _has(d, t)), "medium")
+        theme = next((v for k, v in THEME_WORDS.items() if re.search(r"\b" + k, t)), "any")
         call("generate_encounter", party_level=level or 3, party_size=size, difficulty=diff, theme=theme)
         return "The Forge glows. Say `start combat` when the party is ready.", cards
-    if "loot" in t or "treasure" in t or "hoard" in t:
-        call("generate_loot", party_level=level or 3, hoard="hoard" in t)
+    if _has("loot|treasure|hoard", t):
+        call("generate_loot", party_level=level or 3, hoard=_has("hoard", t))
         return "Shiny things acquired. 💰", cards
-    race = next((r for r in engine.RACES if r.lower().replace("-", " ") in t.replace("-", " ")), None)
-    cls = next((c for c in engine.CLASSES if c.lower() in t), None)
-    if "character" in t or "hero" in t or re.search(r"\bpc\b", t) or "build" in t or (race and cls):
+    race = _first_word(engine.RACES, t)
+    cls = _first_word(engine.CLASSES, t)
+    if _has(r"character|hero|pc|build", t) or (race and cls):
         call("create_character", race=race, character_class=cls, level=level or 1)
         return "A new hero steps into the torchlight. Saved to the Archive. 📜", cards
-    if "npc" in t or any(r in t for r in engine.ROLES):
-        role = next((r for r in engine.ROLES if r in t), None)
+    role = _first_word(engine.ROLES, t)
+    if _has("npc", t) or role:
         call("generate_npc", role=role)
         return "Someone new is behind the bar. Handle with secrets. 🍺", cards
-    if re.search(r"what do we have|state|archive|campaign", t):
+    if _has(r"what do we have|state|archive|campaign", t):
         call("campaign_state")
         return "Here's the whole campaign at a glance.", cards
     return HELP, cards

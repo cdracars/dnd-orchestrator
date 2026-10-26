@@ -8,7 +8,7 @@ const cid = store.get('cid') || (() => { const v = (crypto.randomUUID && crypto.
 const AB = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
 const KINDS = [
   { k: 'character', label: 'Heroes', icon: '🧙' }, { k: 'npc', label: 'NPCs', icon: '🍺' },
-  { k: 'encounter', label: 'Foes', icon: '⚔️' }, { k: 'note', label: 'Notes', icon: '🪶' }, { k: 'print', label: 'Forge', icon: '🖨️' },
+  { k: 'encounter', label: 'Foes', icon: '⚔️' }, { k: 'loot', label: 'Loot', icon: '💰' }, { k: 'note', label: 'Notes', icon: '🪶' }, { k: 'print', label: 'Forge', icon: '🖨️' },
 ];
 const COMBAT_TOOLS = ['start_combat', 'next_turn', 'combat_hp', 'combat_condition', 'end_combat'];
 let kind = 'character', agents = {}, advMode = 'none', rollHistory = [];
@@ -113,8 +113,8 @@ function printCard(j) {
 
 function stateCard(s) {
   const sec = (label, arr) => arr.length ? `<h4>${label}</h4>${arr.map(i => `<div class="kv"><span>${esc(i.name)} <small style="color:var(--mute)">#${i.id}</small></span><span style="color:var(--mute)">${esc(i.summary)}</span></div>`).join('')}` : '';
-  return `<div class="card"><h3>📚 Campaign at a glance</h3>${sec('Heroes', s.character)}${sec('NPCs', s.npc)}${sec('Encounters', s.encounter)}${sec('Notes', s.note)}${sec('Print jobs', s.print)}
-    ${[s.character, s.npc, s.encounter, s.note, s.print].every(a => !a.length) ? '<p style="color:var(--mute)">The Archive is empty. Ask me to build something!</p>' : ''}</div>`;
+  return `<div class="card"><h3>📚 Campaign at a glance</h3>${sec('Heroes', s.character)}${sec('NPCs', s.npc)}${sec('Encounters', s.encounter)}${sec('Loot', s.loot)}${sec('Notes', s.note)}${sec('Print jobs', s.print)}
+    ${[s.character, s.npc, s.encounter, s.loot, s.note, s.print].every(a => !a.length) ? '<p style="color:var(--mute)">The Archive is empty. Ask me to build something!</p>' : ''}</div>`;
 }
 
 /* ------------------------------------------------------------ chat */
@@ -162,7 +162,7 @@ $('#quick').addEventListener('click', e => { const b = e.target.closest('button'
 /* ------------------------------------------------------------ archive */
 const SUB = {
   character: i => `L${i.level} ${i.race} ${i.class}`, npc: i => `${i.race} ${i.role}`,
-  encounter: i => `${i.difficulty} · ${i.monsters.reduce((a, m) => a + m.count, 0)} foes`, note: i => (i.text || '').slice(0, 40), print: i => i.status,
+  encounter: i => `${i.difficulty} · ${i.monsters.reduce((a, m) => a + m.count, 0)} foes`, loot: i => `${i.gp.toLocaleString()} gp · ${i.items.length} items`, note: i => (i.text || '').slice(0, 40), print: i => i.status,
 };
 function renderTabs() {
   $('#libTabs').innerHTML = KINDS.map(k => `<button data-k="${k.k}" class="${k.k === kind ? 'on' : ''}">${k.icon} ${k.label}</button>`).join('');
