@@ -92,7 +92,7 @@ RACES = {
     "Half-Orc": dict(asi={"str": 2, "con": 1}, speed=30, traits=["Darkvision", "Relentless Endurance", "Savage Attacks"],
                      first=["Grask", "Shaka", "Ront", "Ilvara", "Thokk", "Baggi", "Yevelda", "Dench"],
                      last=["Skullcleaver", "Bonegnash", "Ironhide", "Redtusk"]),
-    "Half-Elf": dict(asi={"cha": 2, "dex": 1, "con": 1}, speed=30, traits=["Darkvision", "Fey Ancestry", "Skill Versatility"],
+    "Half-Elf": dict(asi={"cha": 2}, flex=2, bonus_skills=2, speed=30, traits=["Darkvision", "Fey Ancestry", "Skill Versatility"],
                      first=["Aldric", "Thia", "Mara", "Caelum", "Elena", "Sariel", "Joren", "Naivara"],
                      last=["Ashford", "Moonwhisper", "Hollis", "Silverbrook", "Vance", "Dawnstrider"]),
 }
@@ -130,7 +130,7 @@ CLASSES = {
                  gear=["Rapier", "Lute", "Leather armor", "Dagger", "Entertainer's pack"]),
     "Cleric": dict(hd=8, pri=["wis", "con", "str", "cha", "dex", "int"], saves=["wis", "cha"], nskills=2,
                    skills=["History", "Insight", "Medicine", "Persuasion", "Religion"],
-                   ac=dict(kind="fixed", v=16, label="Scale mail & shield"), caster="full", cast_stat="wis", extra=(),
+                   ac=dict(kind="dex", base=16, cap=2, label="Scale mail & shield"), caster="full", cast_stat="wis", extra=(),
                    attacks=[dict(name="Mace", dice="1d6", stat="str")],
                    feats={1: ["Spellcasting", "Divine Domain"], 2: ["Channel Divinity", "Domain feature"], 5: ["Destroy Undead"],
                           10: ["Divine Intervention"]},
@@ -143,7 +143,8 @@ CLASSES = {
                   gear=["Scimitar", "Wooden shield", "Leather armor", "Druidic focus", "Explorer's pack"]),
     "Fighter": dict(hd=10, pri=["str", "con", "dex", "wis", "cha", "int"], saves=["str", "con"], nskills=2,
                     skills=["Acrobatics", "Animal Handling", "Athletics", "History", "Insight", "Intimidation", "Perception", "Survival"],
-                    ac=dict(kind="fixed", v=16, label="Chain mail"), caster=None, extra=(5, 11, 20),
+                    ac=dict(kind="fixed", v=18, label="Chain mail & shield"), caster=None, extra=(5, 11, 20),
+                    asi_levels=(4, 6, 8, 12, 14, 16, 19),
                     attacks=[dict(name="Longsword", dice="1d8", stat="str")],
                     feats={1: ["Fighting Style", "Second Wind"], 2: ["Action Surge"], 3: ["Martial Archetype"], 5: ["Extra Attack"],
                            9: ["Indomitable"], 11: ["Extra Attack (2)"]},
@@ -173,6 +174,7 @@ CLASSES = {
                   skills=["Acrobatics", "Athletics", "Deception", "Insight", "Intimidation", "Investigation", "Perception",
                           "Performance", "Persuasion", "Sleight of Hand", "Stealth"],
                   ac=dict(kind="dex", base=11, cap=None, label="Leather armor"), caster=None, extra=(),
+                  asi_levels=(4, 8, 10, 12, 16, 19),
                   attacks=[dict(name="Shortsword", dice="1d6", stat="dex"), dict(name="Shortbow", dice="1d6", stat="dex", ranged=True)],
                   feats={1: ["Expertise", "Sneak Attack", "Thieves' Cant"], 2: ["Cunning Action"], 3: ["Roguish Archetype"],
                          5: ["Uncanny Dodge"], 7: ["Evasion"], 11: ["Reliable Talent"]},
@@ -250,6 +252,27 @@ def random_name(race: str) -> str:
     return f"{random.choice(r['first'])} {random.choice(r['last'])}"
 
 
+ASI_LEVELS = (4, 8, 12, 16, 19)
+
+
+def _expertise_count(cls_name, level):
+    """Rogue: two skills at 1st, two more at 6th. Bard: two at 3rd, two more at 10th."""
+    if cls_name == "Rogue":
+        return 2 * (1 + (level >= 6))
+    if cls_name == "Bard":
+        return 2 * ((level >= 3) + (level >= 10))
+    return 0
+
+
+def _speed_bonus(cls_name, level):
+    """Monk Unarmored Movement (+10 at 2nd, rising to +30) and Barbarian Fast Movement (+10 at 5th)."""
+    if cls_name == "Monk" and level >= 2:
+        return 10 + 5 * ((level >= 6) + (level >= 10) + (level >= 14) + (level >= 18))
+    if cls_name == "Barbarian" and level >= 5:
+        return 10
+    return 0
+
+
 def _slots(spec, level):
     if spec == "full":
         return {str(i + 1): n for i, n in enumerate(FULL_SLOTS[level])}
@@ -273,7 +296,10 @@ def make_character(name=None, race=None, character_class=None, level=1, backgrou
     scores = dict(zip(cls["pri"], [15, 14, 13, 12, 10, 8]))
     for a, b in rc["asi"].items():
         scores[a] += b
-    for lv in (4, 8, 12, 16, 19):
+    flex = [a for a in cls["pri"] if a not in rc["asi"]][: rc.get("flex", 0)]  # e.g. Half-Elf: two +1s of choice
+    for a in flex:
+        scores[a] += 1
+    for lv in cls.get("asi_levels", ASI_LEVELS):
         if level >= lv:
             for a in cls["pri"]:
                 if scores[a] <= 18:
@@ -303,7 +329,12 @@ def make_character(name=None, race=None, character_class=None, level=1, backgrou
     skill_prof = list(BACKGROUNDS[bg])
     options = [s for s in cls["skills"] if s not in skill_prof]
     skill_prof += random.sample(options, min(cls["nskills"], len(options)))
-    skills = [{"name": s, "bonus": mods[a] + (prof if s in skill_prof else 0), "prof": s in skill_prof}
+    extra_pool = [s for s in SKILLS if s not in skill_prof]  # Half-Elf Skill Versatility
+    skill_prof += random.sample(extra_pool, min(rc.get("bonus_skills", 0), len(extra_pool)))
+    expert = set(random.sample(skill_prof, min(_expertise_count(cls_name, level), len(skill_prof))))
+    jack = cls_name == "Bard" and level >= 2  # Jack of All Trades: half proficiency on everything else
+    skills = [{"name": s, "bonus": mods[a] + (2 * prof if s in expert else prof if s in skill_prof else prof // 2 if jack else 0),
+               "prof": s in skill_prof, "expertise": s in expert}
               for s, a in sorted(SKILLS.items())]
     perception = next(s["bonus"] for s in skills if s["name"] == "Perception")
 
@@ -348,7 +379,7 @@ def make_character(name=None, race=None, character_class=None, level=1, backgrou
     return {
         "type": "character", "name": name, "race": race, "class": cls_name, "level": level, "background": bg,
         "abilities": {a: {"score": scores[a], "mod": mods[a]} for a in ABILITIES},
-        "hp": hp, "ac": ac, "ac_note": acs["label"], "speed": rc["speed"], "initiative": mods["dex"], "proficiency": prof,
+        "hp": hp, "ac": ac, "ac_note": acs["label"], "speed": rc["speed"] + _speed_bonus(cls_name, level), "initiative": mods["dex"], "proficiency": prof,
         "saves": saves, "skills": skills, "passive_perception": 10 + perception, "attacks": attacks,
         "features": features, "racial_traits": rc["traits"], "spellcasting": spell,
         "equipment": cls["gear"], "backstory": backstory, "concept": concept or "",

@@ -21,6 +21,27 @@ for lvl in (1, 5, 10, 20):
         for theme in engine.THEMES:
             e = engine.make_encounter(lvl, 4, diff, theme)
             assert e["monsters"] and e["adjusted_xp"] <= e["thresholds"]["deadly"] * 1.6, (lvl, diff, theme, e["adjusted_xp"])
+# 2014 PHB details
+mk = engine.make_character
+assert mk(character_class="Fighter", level=1)["ac"] == 18  # chain mail + shield
+cl = mk(character_class="Cleric", level=1)
+assert cl["ac"] == 16 + min(cl["abilities"]["dex"]["mod"], 2)  # scale mail + shield
+he = mk(race="Half-Elf", character_class="Wizard", level=1)["abilities"]
+assert (he["int"]["score"], he["con"]["score"], he["cha"]["score"]) == (16, 15, 12)  # +1/+1 follow the class, +2 Cha
+assert sum(sk["prof"] for sk in mk(race="Half-Elf", character_class="Wizard", level=1)["skills"]) == 6  # bg 2 + class 2 + versatility 2
+for lvl, n in ((1, 2), (5, 2), (6, 4)):
+    rg = mk(character_class="Rogue", level=lvl)
+    ex = [sk for sk in rg["skills"] if sk["expertise"]]
+    assert len(ex) == n and all(sk["prof"] for sk in ex)
+    ab = engine.SKILLS
+    assert all(sk["bonus"] == rg["abilities"][ab[sk["name"]]]["mod"] + 2 * rg["proficiency"] for sk in ex)
+assert [sum(sk["expertise"] for sk in mk(character_class="Bard", level=l)["skills"]) for l in (1, 3, 10)] == [0, 2, 4]
+bd = mk(character_class="Bard", level=2)  # Jack of All Trades
+assert all(sk["bonus"] == bd["abilities"][engine.SKILLS[sk["name"]]]["mod"] + 1 for sk in bd["skills"] if not sk["prof"])
+assert mk(race="Human", character_class="Monk", level=2)["speed"] == 40
+assert mk(race="Human", character_class="Barbarian", level=5)["speed"] == 40
+tot = lambda cls, lvl: sum(a["score"] for a in mk(race="Human", character_class=cls, level=lvl)["abilities"].values())  # noqa: E731
+assert tot("Fighter", 6) - tot("Fighter", 5) == 2 and tot("Rogue", 10) - tot("Rogue", 9) == 2 and tot("Wizard", 6) == tot("Wizard", 5)
 r = engine.roll("4d6kh3")
 assert len(r["kept"]) == 3 and r["total"] == sum(r["kept"])
 a = engine.roll("1d20", "advantage")
