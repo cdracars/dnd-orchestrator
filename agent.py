@@ -3,8 +3,10 @@
 With ANTHROPIC_API_KEY set, Claude plans and chains the Guild's tools.
 Without it, a keyword router drives the same tools so the whole table still works offline.
 """
+import json
 import os
 import re
+import threading
 
 import db
 import engine
@@ -13,6 +15,9 @@ import tools
 MODEL = os.environ.get("DND_MODEL", "claude-sonnet-5-5")
 HISTORY = {}
 MAX_TURNS = 12
+MAX_CONVERSATIONS = 50
+_locks = {}
+_locks_guard = threading.Lock()
 
 SYSTEM = """You are the Orchestrator: the Dungeon Master's assistant, living on the DM's home network.
 You command a Guild of specialist tools (dice, rules, encounters, NPCs, loot, notes, combat, 3D print queue).
@@ -39,31 +44,64 @@ def _trim(msgs):
         del msgs[: idx[-MAX_TURNS]]
 
 
-def claude_agent(cid, text, who, emit):
+def _client():
     import anthropic
 
-    client = anthropic.Anthropic()
-    msgs = HISTORY.setdefault(cid, [])
-    msgs.append({"role": "user", "content": text if who == "DM" else f"[{who}] {text}"})
-    _trim(msgs)
-    cards, reply = [], ""
-    for _ in range(8):
-        resp = client.messages.create(model=MODEL, max_tokens=1500, system=SYSTEM.format(party=_party()),
-                                      tools=tools.TOOL_SCHEMAS, messages=msgs)
-        msgs.append({"role": "assistant", "content": resp.content})
-        reply = "".join(b.text for b in resp.content if b.type == "text") or reply
-        if resp.stop_reason != "tool_use":
-            break
-        results = []
-        for b in resp.content:
-            if b.type == "tool_use":
-                out = tools.call_tool(b.name, b.input, cid, who, emit)
-                cards.append(out)
-                payload = repr(out)
-                results.append({"type": "tool_result", "tool_use_id": b.id, "content": payload[:7000],
-                                "is_error": out.get("type") == "error"})
-        msgs.append({"role": "user", "content": results})
-    return reply.strip(), cards
+    return anthropic.Anthropic()
+
+
+def _history(cid):
+    """Per-conversation message list, least-recently-used conversations dropped past MAX_CONVERSATIONS."""
+    msgs = HISTORY.pop(cid, [])
+    HISTORY[cid] = msgs
+    while len(HISTORY) > MAX_CONVERSATIONS:
+        old = next(iter(HISTORY))
+        HISTORY.pop(old)
+        _locks.pop(old, None)
+    return msgs
+
+
+def _tool_payload(out):
+    text = json.dumps(out, default=str)
+    return text if len(text) <= 7000 else text[:7000] + "...[truncated]"
+
+
+# Tool schemas are the biggest static part of the prompt; mark them cacheable (the system prompt changes with the party).
+_CACHED_TOOLS = [*tools.TOOL_SCHEMAS[:-1], {**tools.TOOL_SCHEMAS[-1], "cache_control": {"type": "ephemeral"}}]
+
+
+def claude_agent(cid, text, who, emit):
+    with _locks_guard:
+        lock = _locks.setdefault(cid, threading.Lock())
+    with lock:  # two devices sharing a conversation id must not interleave tool_use / tool_result pairs
+        client = _client()
+        msgs = _history(cid)
+        msgs.append({"role": "user", "content": text if who == "DM" else f"[{who}] {text}"})
+        _trim(msgs)
+        mark = len(msgs) - 1
+        cards, reply = [], ""
+        try:
+            for _ in range(8):
+                resp = client.messages.create(model=MODEL, max_tokens=1500, system=SYSTEM.format(party=_party()),
+                                              tools=_CACHED_TOOLS, messages=msgs)
+                msgs.append({"role": "assistant", "content": resp.content})
+                reply = "".join(b.text for b in resp.content if b.type == "text") or reply
+                # Answer every tool_use block, whatever the stop_reason (e.g. max_tokens), or the history becomes
+                # invalid and every later request in this conversation fails.
+                uses = [b for b in resp.content if b.type == "tool_use"]
+                if not uses:
+                    break
+                results = []
+                for b in uses:
+                    out = tools.call_tool(b.name, b.input, cid, who, emit)
+                    cards.append(out)
+                    results.append({"type": "tool_result", "tool_use_id": b.id, "content": _tool_payload(out),
+                                    "is_error": out.get("type") == "error"})
+                msgs.append({"role": "user", "content": results})
+        except Exception:
+            del msgs[mark:]  # drop this turn entirely so the stored history stays valid
+            raise
+        return reply.strip(), cards
 
 
 # -------------------------------------------------------------- offline

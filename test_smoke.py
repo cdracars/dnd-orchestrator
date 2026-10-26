@@ -67,4 +67,52 @@ with TestClient(server.app) as client:
     items = client.get("/api/items?kind=character").json()
     assert len(items) == 1
     assert client.delete(f"/api/items/{items[0]['id']}").json()["ok"]
+
+# Claude loop with a scripted fake client (no network)
+import agent  # noqa: E402
+from types import SimpleNamespace as NS  # noqa: E402
+
+
+def fake_client(script, seen):
+    def create(**kw):
+        seen.append({"msgs": [(m["role"], m["content"] if isinstance(m["content"], str) else
+                               [x["tool_use_id"] if isinstance(x, dict) else x.type for x in m["content"]]) for m in kw["messages"]],
+                     "cached": kw["tools"][-1].get("cache_control")})
+        step = script.pop(0)
+        if isinstance(step, Exception):
+            raise step
+        return step
+    return NS(messages=NS(create=create))
+
+
+tool_turn = lambda stop: NS(stop_reason=stop, content=[NS(type="text", text="Rolling."),  # noqa: E731
+                                                       NS(type="tool_use", id="tu1", name="roll_dice", input={"expression": "1d20"})])
+done = NS(stop_reason="end_turn", content=[NS(type="text", text="Nat what?")])
+
+# a max_tokens stop that still contains a tool_use must still get its tool_result
+seen = []
+agent._client = lambda: fake_client([tool_turn("max_tokens"), done], seen)
+reply, cards = agent.claude_agent("c1", "roll me a d20", "DM", None)
+assert reply == "Nat what?" and cards[0]["type"] == "roll"
+assert seen[1]["msgs"][-1] == ("user", ["tu1"]) and seen[0]["cached"] == {"type": "ephemeral"}
+assert [m["role"] for m in agent.HISTORY["c1"]] == ["user", "assistant", "user", "assistant"]
+
+# an API failure mid-turn must not leave an unanswered tool_use in the history
+before = len(agent.HISTORY["c1"])
+agent._client = lambda: fake_client([tool_turn("tool_use"), RuntimeError("boom")], [])
+try:
+    agent.claude_agent("c1", "again", "DM", None)
+    raise AssertionError("expected failure")
+except RuntimeError:
+    pass
+assert len(agent.HISTORY["c1"]) == before
+seen = []
+agent._client = lambda: fake_client([done], seen)
+agent.claude_agent("c1", "and again", "DM", None)
+assert [r for r, _ in seen[0]["msgs"]] == ["user", "assistant", "user", "assistant", "user"]
+
+# conversations are bounded
+for i in range(agent.MAX_CONVERSATIONS + 5):
+    agent._history(f"x{i}")
+assert len(agent.HISTORY) <= agent.MAX_CONVERSATIONS
 print("ALL SMOKE TESTS PASSED")
