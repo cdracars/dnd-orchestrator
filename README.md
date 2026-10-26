@@ -15,7 +15,8 @@ cp .env.example .env     # then put your ANTHROPIC_API_KEY in it
 ```
 Without a key it still works in **offline Rules Engine mode** with direct commands:
 `roll 4d6kh3`, `encounter level 5 party of 4 hard undead`, `character level 3 tiefling warlock`,
-`npc innkeeper`, `loot level 6 hoard`, `start combat`, `next turn`, `note: title - text`.
+`npc innkeeper`, `loot level 6 hoard`, `start combat`, `next turn`, `note: title - text`,
+`party`, `add <hero> to the party`, `remove <hero> from the party`.
 
 ## What's inside
 | Piece | What it does |
@@ -26,7 +27,7 @@ Without a key it still works in **offline Rules Engine mode** with direct comman
 | **Tavern Keeper** | NPCs with a want, a secret, a voice and an attitude |
 | **Hoard Keeper** | Treasure by tier, gems, magic items by rarity |
 | **Dice Goblin** | `NdM+K`, keep-highest, advantage/disadvantage, shared roll feed |
-| **War Table** | Initiative, HP bars, conditions, turn/round tracking |
+| **War Table** | Initiative, HP bars, conditions, turn/round tracking for the **party** (a roster separate from the Archive) |
 | **Print Forge** | 3D print queue; set `PRINT_WEBHOOK_URL` to POST each job to your slicer/printer orchestrator when it is queued and on every status change |
 | **The Scribe** | Notes + campaign state, all in SQLite (`campaign.db`) |
 

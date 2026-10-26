@@ -6,7 +6,9 @@
 <meta name="theme-color" content="#0b0813">
 <title>Dungeon Master's Orchestrator</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<!-- non-blocking: the table may have no internet, and system fonts are the fallback -->
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Inter:wght@400;500;600&display=swap" rel="stylesheet"></noscript>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🎲%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -74,7 +76,7 @@
       </div>
       <div class="dicebtns" id="diceBtns"></div>
       <div class="dicerow">
-        <label>×<input type="number" id="dCount" value="1" min="1" max="20"></label>
+        <label>×<input type="number" id="dCount" value="1" min="1" max="100"></label>
         <label>±<input type="number" id="dMod" value="0" min="-20" max="30"></label>
         <div class="seg" id="advSeg"><button data-v="none" class="on">Normal</button><button data-v="advantage">Adv</button><button data-v="disadvantage">Dis</button></div>
       </div>
