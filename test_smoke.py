@@ -69,6 +69,7 @@ with TestClient(server.app) as client:
     assert client.delete(f"/api/items/{items[0]['id']}").json()["ok"]
 
 # Claude loop with a scripted fake client (no network)
+import threading  # noqa: E402
 import agent  # noqa: E402
 from types import SimpleNamespace as NS  # noqa: E402
 
@@ -115,4 +116,14 @@ assert [r for r, _ in seen[0]["msgs"]] == ["user", "assistant", "user", "assista
 for i in range(agent.MAX_CONVERSATIONS + 5):
     agent._history(f"x{i}")
 assert len(agent.HISTORY) <= agent.MAX_CONVERSATIONS
+# a conversation whose turn is in flight keeps its history and lock when others push it past the cap
+agent.HISTORY.clear()
+agent._locks.clear()
+busy = agent._history("busy")
+agent._locks["busy"] = threading.Lock()
+agent._locks["busy"].acquire()
+for i in range(agent.MAX_CONVERSATIONS + 5):
+    agent._history(f"y{i}")
+assert agent.HISTORY["busy"] is busy and agent._locks["busy"].locked()
+agent._locks["busy"].release()
 print("ALL SMOKE TESTS PASSED")

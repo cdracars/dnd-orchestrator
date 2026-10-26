@@ -51,14 +51,19 @@ def _client():
 
 
 def _history(cid):
-    """Per-conversation message list, least-recently-used conversations dropped past MAX_CONVERSATIONS."""
-    msgs = HISTORY.pop(cid, [])
-    HISTORY[cid] = msgs
-    while len(HISTORY) > MAX_CONVERSATIONS:
-        old = next(iter(HISTORY))
-        HISTORY.pop(old)
-        _locks.pop(old, None)
-    return msgs
+    """Per-conversation message list. Past MAX_CONVERSATIONS the least-recently-used idle conversation is dropped;
+    one whose turn is still running (its lock is held) is never evicted."""
+    with _locks_guard:
+        msgs = HISTORY.pop(cid, [])
+        HISTORY[cid] = msgs
+        for old in list(HISTORY):
+            if len(HISTORY) <= MAX_CONVERSATIONS:
+                break
+            lock = _locks.get(old)
+            if old != cid and not (lock and lock.locked()):
+                HISTORY.pop(old)
+                _locks.pop(old, None)
+        return msgs
 
 
 def _tool_payload(out):
