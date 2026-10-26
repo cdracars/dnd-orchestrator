@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local config and secrets
+.env
+
+# Campaign data (SQLite)
+campaign.db
+campaign.db-journal
+*.db
