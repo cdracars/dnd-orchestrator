@@ -1,0 +1,5 @@
+.git
+.venv
+.env
+campaign.db
+__pycache__
