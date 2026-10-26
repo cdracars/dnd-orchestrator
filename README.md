@@ -45,3 +45,7 @@ Run `python test_smoke.py` after changes.
 ## Notes
 - Monster/class data is a compact SRD-style set, not the full Monster Manual. Extend `MONSTERS` in `engine.py`.
 - No auth: it's meant for your home network. Don't expose the port to the internet.
+
+## Credits
+- **Juan Pablo** ([Luma-Isla Studios](https://luma-isla.com)): original author.
+- **Cody Dracars**: editor and co-author.
