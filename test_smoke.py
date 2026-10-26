@@ -39,7 +39,8 @@ assert [sum(sk["expertise"] for sk in mk(character_class="Bard", level=l)["skill
 bd = mk(character_class="Bard", level=2)  # Jack of All Trades
 assert all(sk["bonus"] == bd["abilities"][engine.SKILLS[sk["name"]]]["mod"] + 1 for sk in bd["skills"] if not sk["prof"])
 assert bd["initiative"] == bd["abilities"]["dex"]["mod"] + 1  # Jack of All Trades applies to initiative
-assert mk(character_class="Bard", level=1)["initiative"] == mk(character_class="Bard", level=1)["abilities"]["dex"]["mod"]
+b1 = mk(character_class="Bard", level=1)
+assert b1["initiative"] == b1["abilities"]["dex"]["mod"]
 assert mk(race="Human", character_class="Monk", level=2)["speed"] == 40
 assert mk(race="Human", character_class="Barbarian", level=5)["speed"] == 40
 tot = lambda cls, lvl: sum(a["score"] for a in mk(race="Human", character_class=cls, level=lvl)["abilities"].values())  # noqa: E731
