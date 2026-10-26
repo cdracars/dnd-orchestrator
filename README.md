@@ -28,7 +28,7 @@ Without a key it still works in **offline Rules Engine mode** with direct comman
 | **Hoard Keeper** | Treasure by tier, gems, magic items by rarity |
 | **Dice Goblin** | `NdM+K`, keep-highest, advantage/disadvantage, shared roll feed |
 | **War Table** | Initiative, HP bars, conditions, turn/round tracking for the **party** (a roster separate from the Archive) |
-| **Print Forge** | 3D print queue; set `PRINT_WEBHOOK_URL` to POST each job to your slicer/printer orchestrator |
+| **Print Forge** | 3D print queue; set `PRINT_WEBHOOK_URL` to POST each job to your slicer/printer orchestrator when it is queued and on every status change |
 | **The Scribe** | Notes + campaign state, all in SQLite (`campaign.db`) |
 
 All math lives in deterministic code (`engine.py`); the LLM only does narrative and routing.

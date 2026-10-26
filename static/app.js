@@ -116,7 +116,7 @@ function rollCard(r) {
 
 function printCard(j) {
   const next = { queued: 'printing', printing: 'done', done: null, failed: 'queued' }[j.status];
-  return `<div class="card"><h3>🖨️ ${esc(j.name)}</h3><div class="sub">${esc(j.item_type)} · ${j.scale_mm} mm · ×${j.quantity}</div>
+  return `<div class="card"><h3>🖨️ ${esc(j.name)}</h3><div class="sub">${esc(j.item_type)} · ${esc(j.scale_mm)} mm · ×${j.quantity}</div>
     <div class="pillrow"><span class="pill gold">${esc(j.status)}</span><span class="pill">webhook: ${esc(j.webhook)}</span></div>
     ${j.notes ? `<p>${esc(j.notes)}</p>` : ''}<div class="actions">${next ? `<button class="btn2" data-act="pstatus" data-id="${j.id}" data-s="${next}">→ Mark ${next}</button>` : ''}
     ${j.status !== 'failed' && j.status !== 'done' ? `<button class="btn2" data-act="pstatus" data-id="${j.id}" data-s="failed">Mark failed</button>` : ''}</div></div>`;

@@ -2,6 +2,7 @@
 import inspect
 import json
 import os
+import queue
 import threading
 import urllib.request
 
@@ -247,12 +248,30 @@ def end_combat():
 
 
 # ---- printing
+PRINT_KEYS = ("type", "id", "name", "item_type", "source_id", "scale_mm", "quantity", "notes", "status")
+
+
 def _post_webhook(job):
+    """POST the job (documented payload only) to PRINT_WEBHOOK_URL: on queueing and again on every status change."""
     url = os.environ.get("PRINT_WEBHOOK_URL")
     if not url:
         return
+    _webhook_q.put((url, {k: job.get(k) for k in PRINT_KEYS}))
+    with _webhook_guard:
+        global _webhook_worker
+        if _webhook_worker is None:
+            _webhook_worker = threading.Thread(target=_webhook_loop, daemon=True)
+            _webhook_worker.start()
 
-    def go():
+
+_webhook_q = queue.Queue()  # one worker drains it, so a job's "queued" POST always lands before its later status changes
+_webhook_guard = threading.Lock()
+_webhook_worker = None
+
+
+def _webhook_loop():
+    while True:
+        url, job = _webhook_q.get()
         try:
             req = urllib.request.Request(url, data=json.dumps(job).encode(), headers={"Content-Type": "application/json"},
                                          method="POST")
@@ -261,11 +280,9 @@ def _post_webhook(job):
         except Exception as e:  # noqa: BLE001
             db.update_item(job["id"], {"webhook": f"failed: {e}"})
 
-    threading.Thread(target=go, daemon=True).start()
-
 
 def queue_print(item_name, item_type="miniature", source_id=None, scale_mm=28, quantity=1, notes=""):
-    job = {"type": "print", "name": item_name, "item_type": item_type, "source_id": source_id, "scale_mm": scale_mm,
+    job = {"type": "print", "name": item_name, "item_type": item_type, "source_id": source_id, "scale_mm": int(scale_mm or 28),
            "quantity": int(quantity or 1), "notes": notes, "status": "queued",
            "webhook": "pending" if os.environ.get("PRINT_WEBHOOK_URL") else "not configured"}
     job["id"] = db.save_item("print", item_name, job)
@@ -276,9 +293,14 @@ def queue_print(item_name, item_type="miniature", source_id=None, scale_mm=28, q
 def set_print_status(id, status):
     if status not in ("queued", "printing", "done", "failed"):
         raise ValueError("status must be queued, printing, done or failed")
-    j = db.update_item(id, {"status": status})
-    if not j:
+    cur = db.get_item(id)
+    if not cur or cur.get("type") != "print":  # ids are shared with heroes, NPCs, notes...
         raise ValueError(f"No print job {id}")
+    j = db.update_item(id, {"status": status})
+    if os.environ.get("PRINT_WEBHOOK_URL"):
+        j["webhook"] = "pending"
+        db.update_item(id, {"webhook": "pending"})
+        _post_webhook(j)
     return j
 
 
@@ -344,6 +366,9 @@ TOOL_SCHEMAS = [
      "input_schema": _obj({"target": {"type": "string"}, "condition": {"type": "string"}, "active": {"type": "boolean"}},
                           ["target", "condition"])},
     {"name": "end_combat", "description": "End the current combat.", "input_schema": _obj({})},
+    {"name": "set_print_status", "description": "Update a print job's status (queued, printing, done or failed) by its id.",
+     "input_schema": _obj({"id": {"type": "integer"}, "status": {"type": "string", "enum": ["queued", "printing", "done", "failed"]}},
+                          ["id", "status"])},
     {"name": "queue_print", "description": "Queue a 3D print job (miniature or terrain) in the Print Forge.",
      "input_schema": _obj({"item_name": {"type": "string"}, "item_type": {"type": "string", "enum": ["miniature", "terrain", "prop", "handout"]},
                            "source_id": {"type": "integer"}, "scale_mm": {"type": "integer"}, "quantity": {"type": "integer"},
