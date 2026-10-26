@@ -28,10 +28,14 @@ def roll_dice(expression="1d20", advantage="none", who="DM", reason=""):
     return r
 
 
-def create_character(name=None, race=None, character_class=None, level=1, background=None, concept="", save=True):
+def create_character(name=None, race=None, character_class=None, level=1, background=None, concept="", save=True,
+                     join_party=False):
     c = engine.make_character(name, race, character_class, level, background, concept)
     if save:
         c["id"] = db.save_item("character", c["name"], c)
+        if join_party:
+            party_add(c["id"])
+        c["in_party"] = bool(join_party)  # set after save so it isn't persisted; the party list is the source of truth
     return c
 
 
@@ -49,8 +53,12 @@ def generate_npc(role=None, race=None, save=True):
     return n
 
 
-def generate_loot(party_level=3, hoard=False):
-    return engine.make_loot(party_level, hoard)
+def generate_loot(party_level=3, hoard=False, save=True):
+    loot = engine.make_loot(party_level, hoard)
+    if save:
+        loot["name"] = f"{'Hoard' if hoard else 'Loot'} (level {loot['party_level']})"
+        loot["id"] = db.save_item("loot", loot["name"], loot)
+    return loot
 
 
 def save_note(title, text):
@@ -61,13 +69,15 @@ def save_note(title, text):
 
 def campaign_state():
     out = {"type": "state"}
-    for kind in ("character", "npc", "encounter", "note", "print"):
+    for kind in ("character", "npc", "encounter", "loot", "note", "print"):
         out[kind] = [{"id": i["id"], "name": i["name"],
                       "summary": (f"L{i.get('level')} {i.get('race')} {i.get('class')}" if kind == "character" else
                                   f"{i.get('race')} {i.get('role')}" if kind == "npc" else
                                   f"{i.get('difficulty')} ({sum(m['count'] for m in i.get('monsters', []))} foes)" if kind == "encounter" else
+                                  f"{i.get('gp')} gp, {len(i.get('items', []))} items" if kind == "loot" else
                                   i.get("status", "") if kind == "print" else (i.get("text", "")[:60]))}
                      for i in db.list_items(kind, 30)]
+    out["party"] = [{"id": m["id"], "name": m["name"]} for m in party_members()]  # not limited to the 30 newest heroes above
     out["combat_active"] = bool((db.get_state("combat") or {}).get("active"))
     return out
 
@@ -77,6 +87,68 @@ def get_item(id):
     if not i:
         raise ValueError(f"No item with id {id}")
     return i
+
+
+# ---- party
+_party_lock = threading.Lock()  # party_add / party_remove are read-modify-write; two table clients must not lose an update
+
+
+def _party_ids():
+    return db.get_state("party") or []
+
+
+def party_members():
+    """Saved characters currently in the party, in the order they joined."""
+    out = []
+    for i in _party_ids():
+        c = db.get_item(i)
+        if c and c.get("type") == "character":
+            out.append(c)
+    return out
+
+
+def _find_character(ref):
+    heroes = db.list_items("character")
+    if isinstance(ref, int) or str(ref).strip().isdigit():
+        for h in heroes:
+            if h["id"] == int(ref):
+                return h
+    else:
+        t = str(ref).strip().lower()
+        for h in heroes:
+            if h["name"].lower() == t:
+                return h
+        for h in heroes:
+            if t and t in h["name"].lower():
+                return h
+    raise ValueError(f"No saved hero matching '{ref}'.")
+
+
+def _party_card(event):
+    members = party_members()
+    return {"type": "party", "event": event,
+            "members": [{"id": m["id"], "name": m["name"], "level": m["level"], "race": m["race"], "class": m["class"],
+                         "hp": m["hp"], "ac": m["ac"]} for m in members]}
+
+
+def party_list():
+    return _party_card("The party")
+
+
+def party_add(character):
+    h = _find_character(character)
+    with _party_lock:
+        ids = _party_ids()
+        if h["id"] not in ids:
+            db.set_state("party", ids + [h["id"]])
+    return _party_card(f"{h['name']} joins the party")
+
+
+def party_remove(character):
+    h = _find_character(character)
+    with _party_lock:
+        db.set_state("party", [i for i in _party_ids() if i != h["id"]])
+    return _party_card(f"{h['name']} leaves the party")
 
 
 # ---- combat
@@ -100,12 +172,12 @@ def start_combat(encounter_id=None, include_party=True, extra=None):
             for i in range(m["count"]):
                 _add_combatant(cs, f"{m['name']} {i + 1}" if m["count"] > 1 else m["name"], m["hp"], m["ac"], 0, "foe")
     if include_party:
-        for c in db.list_items("character"):
+        for c in party_members():
             _add_combatant(cs, c["name"], c["hp"], c["ac"], c.get("initiative", 0), "party")
     for e in extra or []:
         _add_combatant(cs, e["name"], e.get("hp", 10), e.get("ac", 10), e.get("init_bonus", 0), e.get("side", "foe"))
     if not cs:
-        raise ValueError("Nobody to fight. Create heroes or an encounter first.")
+        raise ValueError("Nobody to fight. Add heroes to the party or pick an encounter first.")
     cs.sort(key=lambda c: (-c["init"], -c["bonus"]))
     state = {"active": True, "round": 1, "turn": 0, "combatants": cs, "event": "Roll for initiative!"}
     db.set_state("combat", state)
@@ -212,6 +284,7 @@ def set_print_status(id, status):
 
 TOOLS = {f.__name__: f for f in [
     roll_dice, create_character, generate_encounter, generate_npc, generate_loot, save_note, campaign_state, get_item,
+    party_list, party_add, party_remove,
     start_combat, next_turn, combat_hp, combat_condition, end_combat, queue_print, set_print_status]}
 
 TOOL_AGENT = {
@@ -219,6 +292,7 @@ TOOL_AGENT = {
     "generate_loot": "hoard", "save_note": "scribe", "campaign_state": "scribe", "get_item": "scribe",
     "start_combat": "war", "next_turn": "war", "combat_hp": "war", "combat_condition": "war", "end_combat": "war",
     "queue_print": "print", "set_print_status": "print",
+    "party_list": "rules", "party_add": "rules", "party_remove": "rules",
 }
 COMBAT_TOOLS = {"start_combat", "next_turn", "combat_hp", "combat_condition", "end_combat"}
 
@@ -236,14 +310,21 @@ TOOL_SCHEMAS = [
                            "character_class": {"type": "string", "enum": list(engine.CLASSES)},
                            "level": {"type": "integer", "minimum": 1, "maximum": 20},
                            "background": {"type": "string", "enum": list(engine.BACKGROUNDS)},
-                           "concept": {"type": "string", "description": "One-line character concept for flavour"}})},
+                           "concept": {"type": "string", "description": "One-line character concept for flavour"},
+                           "join_party": {"type": "boolean", "description": "Add the new hero to the party (default false)"}})},
+    {"name": "party_list", "description": "Show the current party: the saved heroes who adventure together and join combat.",
+     "input_schema": _obj({})},
+    {"name": "party_add", "description": "Add a saved hero (by id or name) to the party.",
+     "input_schema": _obj({"character": {"type": ["integer", "string"], "description": "Hero id or name"}}, ["character"])},
+    {"name": "party_remove", "description": "Remove a hero (by id or name) from the party. The hero stays in the Archive.",
+     "input_schema": _obj({"character": {"type": ["integer", "string"], "description": "Hero id or name"}}, ["character"])},
     {"name": "generate_encounter", "description": "Build a balanced encounter using DMG XP-budget math and save it.",
      "input_schema": _obj({"party_level": {"type": "integer"}, "party_size": {"type": "integer"},
                            "difficulty": {"type": "string", "enum": engine.DIFFS}, "theme": {"type": "string", "enum": engine.THEMES}},
                           ["party_level", "party_size"])},
     {"name": "generate_npc", "description": "Create an NPC with a secret, a want, a voice and an attitude, and save it.",
      "input_schema": _obj({"role": {"type": "string"}, "race": {"type": "string", "enum": list(engine.RACES)}})},
-    {"name": "generate_loot", "description": "Roll treasure for a party level. hoard=true for a big haul.",
+    {"name": "generate_loot", "description": "Roll treasure for a party level and save it to the Archive. hoard=true for a big haul.",
      "input_schema": _obj({"party_level": {"type": "integer"}, "hoard": {"type": "boolean"}}, ["party_level"])},
     {"name": "save_note", "description": "Save a campaign note (session recap, plot thread, lore) to the Archive.",
      "input_schema": _obj({"title": {"type": "string"}, "text": {"type": "string"}}, ["title", "text"])},
@@ -251,7 +332,7 @@ TOOL_SCHEMAS = [
      "input_schema": _obj({})},
     {"name": "get_item", "description": "Fetch the full saved record for an id from the Archive.",
      "input_schema": _obj({"id": {"type": "integer"}}, ["id"])},
-    {"name": "start_combat", "description": "Start the initiative tracker from a saved encounter id, optionally adding saved heroes and extra combatants.",
+    {"name": "start_combat", "description": "Start the initiative tracker from a saved encounter id, optionally adding the party and extra combatants.",
      "input_schema": _obj({"encounter_id": {"type": "integer"}, "include_party": {"type": "boolean"},
                            "extra": {"type": "array", "items": _obj({"name": {"type": "string"}, "hp": {"type": "integer"},
                                                                     "ac": {"type": "integer"}, "init_bonus": {"type": "integer"},
@@ -282,8 +363,8 @@ def brief(name, r):
         return f"{r['name']}, {r['role']}"
     if t == "loot":
         return f"{r['gp']} gp + {len(r['items'])} items"
-    if t == "combat":
-        return r.get("event", "combat update")
+    if t in ("combat", "party"):
+        return r.get("event", "update")
     if t == "print":
         return f"{r['name']}: {r['status']}"
     if t == "error":
