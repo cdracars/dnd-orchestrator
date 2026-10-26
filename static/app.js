@@ -121,7 +121,7 @@ function printCard(j) {
 
 function stateCard(s) {
   const sec = (label, arr) => arr.length ? `<h4>${label}</h4>${arr.map(i => `<div class="kv"><span>${esc(i.name)} <small style="color:var(--mute)">#${i.id}</small></span><span style="color:var(--mute)">${esc(i.summary)}</span></div>`).join('')}` : '';
-  const party = (s.party || []).map(id => (s.character.find(c => c.id === id) || {}).name).filter(Boolean);
+  const party = (s.party || []).map(m => m.name);
   return `<div class="card"><h3>📚 Campaign at a glance</h3>${party.length ? `<h4>Party</h4>${pills(party)}` : ''}${sec('Heroes', s.character)}${sec('NPCs', s.npc)}${sec('Encounters', s.encounter)}${sec('Notes', s.note)}${sec('Print jobs', s.print)}
     ${[s.character, s.npc, s.encounter, s.note, s.print].every(a => !a.length) ? '<p style="color:var(--mute)">The Archive is empty. Ask me to build something!</p>' : ''}</div>`;
 }

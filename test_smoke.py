@@ -7,6 +7,7 @@ os.environ.pop("ANTHROPIC_API_KEY", None)
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+import db  # noqa: E402
 import engine  # noqa: E402
 import server  # noqa: E402
 
@@ -77,4 +78,17 @@ with TestClient(server.app) as client:
     assert len(items) == 2 and not any(i["in_party"] for i in items)
     for i in items:
         assert client.delete(f"/api/items/{i['id']}").json()["ok"]
+
+# party: concurrent adds are not lost, and campaign_state lists members beyond its 30-hero summary window
+import threading  # noqa: E402
+import tools  # noqa: E402
+
+heroes = [tools.create_character(character_class="Fighter")["id"] for _ in range(35)]
+ts = [threading.Thread(target=tools.party_add, args=(h,)) for h in heroes]
+[t.start() for t in ts]
+[t.join() for t in ts]
+assert sorted(m["id"] for m in tools.party_members()) == sorted(heroes)
+assert {m["id"] for m in tools.campaign_state()["party"]} == set(heroes)
+for h in heroes:
+    db.delete_item(h)
 print("ALL SMOKE TESTS PASSED")

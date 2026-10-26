@@ -72,7 +72,7 @@ def campaign_state():
                                   f"{i.get('difficulty')} ({sum(m['count'] for m in i.get('monsters', []))} foes)" if kind == "encounter" else
                                   i.get("status", "") if kind == "print" else (i.get("text", "")[:60]))}
                      for i in db.list_items(kind, 30)]
-    out["party"] = [m["id"] for m in party_members()]
+    out["party"] = [{"id": m["id"], "name": m["name"]} for m in party_members()]  # not limited to the 30 newest heroes above
     out["combat_active"] = bool((db.get_state("combat") or {}).get("active"))
     return out
 
@@ -85,6 +85,9 @@ def get_item(id):
 
 
 # ---- party
+_party_lock = threading.Lock()  # party_add / party_remove are read-modify-write; two table clients must not lose an update
+
+
 def _party_ids():
     return db.get_state("party") or []
 
@@ -129,15 +132,17 @@ def party_list():
 
 def party_add(character):
     h = _find_character(character)
-    ids = _party_ids()
-    if h["id"] not in ids:
-        db.set_state("party", ids + [h["id"]])
+    with _party_lock:
+        ids = _party_ids()
+        if h["id"] not in ids:
+            db.set_state("party", ids + [h["id"]])
     return _party_card(f"{h['name']} joins the party")
 
 
 def party_remove(character):
     h = _find_character(character)
-    db.set_state("party", [i for i in _party_ids() if i != h["id"]])
+    with _party_lock:
+        db.set_state("party", [i for i in _party_ids() if i != h["id"]])
     return _party_card(f"{h['name']} leaves the party")
 
 
