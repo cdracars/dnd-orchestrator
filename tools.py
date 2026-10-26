@@ -1,9 +1,5 @@
 """Tool layer: every capability the orchestrator can call, plus the schemas Claude sees."""
 import inspect
-import json
-import os
-import threading
-import urllib.request
 
 import db
 import engine
@@ -17,7 +13,6 @@ AGENTS = {
     "hoard": {"name": "Hoard Keeper", "icon": "💰", "desc": "Loot & treasure"},
     "scribe": {"name": "The Scribe", "icon": "🪶", "desc": "Notes & campaign memory"},
     "war": {"name": "War Table", "icon": "🛡️", "desc": "Initiative & combat"},
-    "print": {"name": "Print Forge", "icon": "🖨️", "desc": "Minis & terrain queue"},
 }
 
 
@@ -61,12 +56,12 @@ def save_note(title, text):
 
 def campaign_state():
     out = {"type": "state"}
-    for kind in ("character", "npc", "encounter", "note", "print"):
+    for kind in ("character", "npc", "encounter", "note"):
         out[kind] = [{"id": i["id"], "name": i["name"],
                       "summary": (f"L{i.get('level')} {i.get('race')} {i.get('class')}" if kind == "character" else
                                   f"{i.get('race')} {i.get('role')}" if kind == "npc" else
                                   f"{i.get('difficulty')} ({sum(m['count'] for m in i.get('monsters', []))} foes)" if kind == "encounter" else
-                                  i.get("status", "") if kind == "print" else (i.get("text", "")[:60]))}
+                                  i.get("text", "")[:60])}
                      for i in db.list_items(kind, 30)]
     out["combat_active"] = bool((db.get_state("combat") or {}).get("active"))
     return out
@@ -174,51 +169,14 @@ def end_combat():
     return {"type": "combat", **s}
 
 
-# ---- printing
-def _post_webhook(job):
-    url = os.environ.get("PRINT_WEBHOOK_URL")
-    if not url:
-        return
-
-    def go():
-        try:
-            req = urllib.request.Request(url, data=json.dumps(job).encode(), headers={"Content-Type": "application/json"},
-                                         method="POST")
-            urllib.request.urlopen(req, timeout=4).read()
-            db.update_item(job["id"], {"webhook": "sent"})
-        except Exception as e:  # noqa: BLE001
-            db.update_item(job["id"], {"webhook": f"failed: {e}"})
-
-    threading.Thread(target=go, daemon=True).start()
-
-
-def queue_print(item_name, item_type="miniature", source_id=None, scale_mm=28, quantity=1, notes=""):
-    job = {"type": "print", "name": item_name, "item_type": item_type, "source_id": source_id, "scale_mm": scale_mm,
-           "quantity": int(quantity or 1), "notes": notes, "status": "queued",
-           "webhook": "pending" if os.environ.get("PRINT_WEBHOOK_URL") else "not configured"}
-    job["id"] = db.save_item("print", item_name, job)
-    _post_webhook(job)
-    return job
-
-
-def set_print_status(id, status):
-    if status not in ("queued", "printing", "done", "failed"):
-        raise ValueError("status must be queued, printing, done or failed")
-    j = db.update_item(id, {"status": status})
-    if not j:
-        raise ValueError(f"No print job {id}")
-    return j
-
-
 TOOLS = {f.__name__: f for f in [
     roll_dice, create_character, generate_encounter, generate_npc, generate_loot, save_note, campaign_state, get_item,
-    start_combat, next_turn, combat_hp, combat_condition, end_combat, queue_print, set_print_status]}
+    start_combat, next_turn, combat_hp, combat_condition, end_combat]}
 
 TOOL_AGENT = {
     "roll_dice": "dice", "create_character": "rules", "generate_encounter": "forge", "generate_npc": "tavern",
     "generate_loot": "hoard", "save_note": "scribe", "campaign_state": "scribe", "get_item": "scribe",
     "start_combat": "war", "next_turn": "war", "combat_hp": "war", "combat_condition": "war", "end_combat": "war",
-    "queue_print": "print", "set_print_status": "print",
 }
 COMBAT_TOOLS = {"start_combat", "next_turn", "combat_hp", "combat_condition", "end_combat"}
 
@@ -247,7 +205,7 @@ TOOL_SCHEMAS = [
      "input_schema": _obj({"party_level": {"type": "integer"}, "hoard": {"type": "boolean"}}, ["party_level"])},
     {"name": "save_note", "description": "Save a campaign note (session recap, plot thread, lore) to the Archive.",
      "input_schema": _obj({"title": {"type": "string"}, "text": {"type": "string"}}, ["title", "text"])},
-    {"name": "campaign_state", "description": "List everything in the Archive (heroes, NPCs, encounters, notes, print jobs) with ids.",
+    {"name": "campaign_state", "description": "List everything in the Archive (heroes, NPCs, encounters, notes) with ids.",
      "input_schema": _obj({})},
     {"name": "get_item", "description": "Fetch the full saved record for an id from the Archive.",
      "input_schema": _obj({"id": {"type": "integer"}}, ["id"])},
@@ -263,10 +221,6 @@ TOOL_SCHEMAS = [
      "input_schema": _obj({"target": {"type": "string"}, "condition": {"type": "string"}, "active": {"type": "boolean"}},
                           ["target", "condition"])},
     {"name": "end_combat", "description": "End the current combat.", "input_schema": _obj({})},
-    {"name": "queue_print", "description": "Queue a 3D print job (miniature or terrain) in the Print Forge.",
-     "input_schema": _obj({"item_name": {"type": "string"}, "item_type": {"type": "string", "enum": ["miniature", "terrain", "prop", "handout"]},
-                           "source_id": {"type": "integer"}, "scale_mm": {"type": "integer"}, "quantity": {"type": "integer"},
-                           "notes": {"type": "string"}}, ["item_name"])},
 ]
 
 
@@ -284,8 +238,6 @@ def brief(name, r):
         return f"{r['gp']} gp + {len(r['items'])} items"
     if t == "combat":
         return r.get("event", "combat update")
-    if t == "print":
-        return f"{r['name']}: {r['status']}"
     if t == "error":
         return r["message"]
     return name

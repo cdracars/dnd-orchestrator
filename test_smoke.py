@@ -49,9 +49,6 @@ with TestClient(server.app) as client:
         hit = client.post("/api/tool/combat_hp", json={"args": {"target": foe["name"], "delta": -5}}).json()
         assert hit["type"] == "combat"
         assert client.post("/api/tool/next_turn", json={}).json()["type"] == "combat"
-        job = client.post("/api/tool/queue_print", json={"args": {"item_name": "Goblin x3"}}).json()
-        assert job["status"] == "queued"
-        assert client.post("/api/tool/set_print_status", json={"args": {"id": job["id"], "status": "printing"}}).json()["status"] == "printing"
         assert client.post("/api/tool/combat_hp", json={"args": {"target": "nobody", "delta": 1}}).json()["type"] == "error"
         assert chat("end combat")["cards"][0]["active"] is False
         state = chat("what do we have")["cards"][0]

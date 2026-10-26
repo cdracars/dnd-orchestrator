@@ -88,7 +88,7 @@ class ToolIn(BaseModel):
 def status():
     live = bool(os.environ.get("ANTHROPIC_API_KEY"))
     return {"mode": "claude" if live else "offline", "model": agent.MODEL if live else None, "agents": tools.AGENTS,
-            "ips": lan_ips(), "port": PORT, "print_webhook": bool(os.environ.get("PRINT_WEBHOOK_URL"))}
+            "ips": lan_ips(), "port": PORT}
 
 
 @app.get("/api/items")

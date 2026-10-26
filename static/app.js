@@ -8,7 +8,7 @@ const cid = store.get('cid') || (() => { const v = (crypto.randomUUID && crypto.
 const AB = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
 const KINDS = [
   { k: 'character', label: 'Heroes', icon: '🧙' }, { k: 'npc', label: 'NPCs', icon: '🍺' },
-  { k: 'encounter', label: 'Foes', icon: '⚔️' }, { k: 'note', label: 'Notes', icon: '🪶' }, { k: 'print', label: 'Forge', icon: '🖨️' },
+  { k: 'encounter', label: 'Foes', icon: '⚔️' }, { k: 'note', label: 'Notes', icon: '🪶' }
 ];
 const COMBAT_TOOLS = ['start_combat', 'next_turn', 'combat_hp', 'combat_condition', 'end_combat'];
 let kind = 'character', agents = {}, advMode = 'none', rollHistory = [];
@@ -36,7 +36,6 @@ function renderCard(c) {
     case 'loot': return lootCard(c);
     case 'roll': return rollCard(c);
     case 'combat': return `<div class="card"><h3>🛡️ ${esc(c.event || 'Combat')}</h3><div class="sub">Round ${c.round ?? '-'} · see the War Table</div></div>`;
-    case 'print': return printCard(c);
     case 'note': return `<div class="card"><h3>🪶 ${esc(c.name)}</h3><p>${esc(c.text).replace(/\n/g, '<br>')}</p></div>`;
     case 'state': return stateCard(c);
     case 'error': return `<div class="card errcard"><h3>⚠️ The dice slipped</h3><p>${esc(c.message)}</p></div>`;
@@ -61,15 +60,13 @@ function characterCard(c) {
     <h4>Features</h4>${pills([...c.racial_traits, ...c.features])}
     <h4>Gear</h4>${pills(c.equipment)}
     <h4>Backstory</h4><p>${esc(c.backstory.origin)} ${esc(c.backstory.hook)} ${esc(c.backstory.bond)}</p><p><em>${esc(c.backstory.flaw)}</em></p>
-    <div class="actions"><button class="btn2" data-act="print" data-name="${esc(c.name)}" data-id="${c.id || ''}" data-type="miniature">🖨️ Queue mini</button></div>
   </div>`;
 }
 
 function npcCard(n) {
   return `<div class="card"><h3>${esc(n.name)}</h3><div class="sub">${esc(n.race)} ${esc(n.role)} · ${esc(n.attitude)}</div>
     <div class="two"><div class="kv"><span>Look</span><b style="font-weight:500;text-align:right">${esc(n.appearance)}</b></div><div class="kv"><span>Voice</span><b style="font-weight:500;text-align:right">${esc(n.voice)}</b></div></div>
-    <h4>Trait</h4><p>${esc(n.trait)}</p><h4>Wants</h4><p>${esc(n.wants)}</p><h4>Secret</h4><p>🤫 This NPC ${esc(n.secret)}.</p>
-    <div class="actions"><button class="btn2" data-act="print" data-name="${esc(n.name)}" data-id="${n.id || ''}" data-type="miniature">🖨️ Queue mini</button></div></div>`;
+    <h4>Trait</h4><p>${esc(n.trait)}</p><h4>Wants</h4><p>${esc(n.wants)}</p><h4>Secret</h4><p>🤫 This NPC ${esc(n.secret)}.</p></div>`;
 }
 
 function encounterCard(e) {
@@ -83,8 +80,7 @@ function encounterCard(e) {
       ${e.monsters.map(m => `<tr><td><b>${m.count}×</b></td><td>${esc(m.name)}<br><small style="color:var(--mute)">${esc(m.attack)}</small></td><td>${esc(m.cr)}</td><td>${m.hp}</td><td>${m.ac}</td></tr>`).join('')}</table>
     <h4>Tactics</h4><p>${esc(e.tactics)}</p><h4>Twist</h4><p>${esc(e.twist)}</p>
     <div class="actions">${e.id ? `<button class="btn2 hot" data-act="combat" data-id="${e.id}">⚔️ Start combat</button>` : ''}
-      <button class="btn2" data-act="loot" data-lvl="${e.party_level}">💰 Roll loot</button>
-      <button class="btn2" data-act="print" data-name="${esc(e.monsters.map(m => m.count + '× ' + m.name).join(', '))}" data-id="${e.id || ''}" data-type="miniature">🖨️ Queue minis</button></div></div>`;
+      <button class="btn2" data-act="loot" data-lvl="${e.party_level}">💰 Roll loot</button></div></div>`;
 }
 
 function lootCard(l) {
@@ -103,18 +99,10 @@ function rollCard(r) {
     ${r.crit ? '<b style="color:var(--gold)">🌟 NATURAL 20!</b>' : ''}${r.fumble ? '<b style="color:var(--red)">💀 Natural 1…</b>' : ''}</div></div></div>`;
 }
 
-function printCard(j) {
-  const next = { queued: 'printing', printing: 'done', done: null, failed: 'queued' }[j.status];
-  return `<div class="card"><h3>🖨️ ${esc(j.name)}</h3><div class="sub">${esc(j.item_type)} · ${j.scale_mm} mm · ×${j.quantity}</div>
-    <div class="pillrow"><span class="pill gold">${esc(j.status)}</span><span class="pill">webhook: ${esc(j.webhook)}</span></div>
-    ${j.notes ? `<p>${esc(j.notes)}</p>` : ''}<div class="actions">${next ? `<button class="btn2" data-act="pstatus" data-id="${j.id}" data-s="${next}">→ Mark ${next}</button>` : ''}
-    ${j.status !== 'failed' && j.status !== 'done' ? `<button class="btn2" data-act="pstatus" data-id="${j.id}" data-s="failed">Mark failed</button>` : ''}</div></div>`;
-}
-
 function stateCard(s) {
   const sec = (label, arr) => arr.length ? `<h4>${label}</h4>${arr.map(i => `<div class="kv"><span>${esc(i.name)} <small style="color:var(--mute)">#${i.id}</small></span><span style="color:var(--mute)">${esc(i.summary)}</span></div>`).join('')}` : '';
-  return `<div class="card"><h3>📚 Campaign at a glance</h3>${sec('Heroes', s.character)}${sec('NPCs', s.npc)}${sec('Encounters', s.encounter)}${sec('Notes', s.note)}${sec('Print jobs', s.print)}
-    ${[s.character, s.npc, s.encounter, s.note, s.print].every(a => !a.length) ? '<p style="color:var(--mute)">The Archive is empty. Ask me to build something!</p>' : ''}</div>`;
+  return `<div class="card"><h3>📚 Campaign at a glance</h3>${sec('Heroes', s.character)}${sec('NPCs', s.npc)}${sec('Encounters', s.encounter)}${sec('Notes', s.note)}
+    ${[s.character, s.npc, s.encounter, s.note].every(a => !a.length) ? '<p style="color:var(--mute)">The Archive is empty. Ask me to build something!</p>' : ''}</div>`;
 }
 
 /* ------------------------------------------------------------ chat */
@@ -162,7 +150,7 @@ $('#quick').addEventListener('click', e => { const b = e.target.closest('button'
 /* ------------------------------------------------------------ archive */
 const SUB = {
   character: i => `L${i.level} ${i.race} ${i.class}`, npc: i => `${i.race} ${i.role}`,
-  encounter: i => `${i.difficulty} · ${i.monsters.reduce((a, m) => a + m.count, 0)} foes`, note: i => (i.text || '').slice(0, 40), print: i => i.status,
+  encounter: i => `${i.difficulty} · ${i.monsters.reduce((a, m) => a + m.count, 0)} foes`, note: i => (i.text || '').slice(0, 40),
 };
 function renderTabs() {
   $('#libTabs').innerHTML = KINDS.map(k => `<button data-k="${k.k}" class="${k.k === kind ? 'on' : ''}">${k.icon} ${k.label}</button>`).join('');
@@ -194,8 +182,6 @@ document.addEventListener('click', async e => {
   try {
     if (a === 'combat') { const r = await runTool('start_combat', { encounter_id: +b.dataset.id, include_party: true }); toast(r.type === 'error' ? '⚠️ ' + r.message : '🛡️ Initiative rolled!'); showView('table'); }
     if (a === 'loot') addCards([await runTool('generate_loot', { party_level: +b.dataset.lvl })]);
-    if (a === 'print') { const j = await runTool('queue_print', { item_name: b.dataset.name, item_type: b.dataset.type || 'miniature', source_id: b.dataset.id ? +b.dataset.id : null }); toast('🖨️ Queued: ' + j.name); }
-    if (a === 'pstatus') { await runTool('set_print_status', { id: +b.dataset.id, status: b.dataset.s }); $('#modal').close?.(); }
     loadLibrary();
   } catch (err) { toast('⚠️ ' + err.message); }
 });

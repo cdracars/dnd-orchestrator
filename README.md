@@ -27,15 +27,9 @@ Without a key it still works in **offline Rules Engine mode** with direct comman
 | **Hoard Keeper** | Treasure by tier, gems, magic items by rarity |
 | **Dice Goblin** | `NdM+K`, keep-highest, advantage/disadvantage, shared roll feed |
 | **War Table** | Initiative, HP bars, conditions, turn/round tracking |
-| **Print Forge** | 3D print queue; set `PRINT_WEBHOOK_URL` to POST each job to your slicer/printer orchestrator |
 | **The Scribe** | Notes + campaign state, all in SQLite (`campaign.db`) |
 
 All math lives in deterministic code (`engine.py`); the LLM only does narrative and routing.
-
-## Print webhook payload
-```json
-{"type":"print","id":3,"name":"Goblin x3","item_type":"miniature","source_id":2,"scale_mm":28,"quantity":1,"notes":"","status":"queued"}
-```
 
 ## Extending
 Add a function to `tools.py`, register it in `TOOLS`, `TOOL_AGENT` and `TOOL_SCHEMAS`.
