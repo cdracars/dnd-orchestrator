@@ -96,7 +96,10 @@ function lootCard(l) {
 
 function rollCard(r) {
   const cls = r.crit ? 'crit' : r.fumble ? 'fumble' : '';
-  const dice = r.dice.map(d => `<span class="die ${r.kept.includes(d) ? '' : 'drop'}">${d}</span>`).join('');
+  const pool = [...r.kept];  // match kept dice one-for-one so duplicates (4d6kh3 → 4,4,4,2) drop the right one
+  const die = (d, keep) => `<span class="die ${keep ? '' : 'drop'}">${d}</span>`;
+  const dice = r.dice.map(d => { const i = pool.indexOf(d); if (i >= 0) pool.splice(i, 1); return die(d, i >= 0); }).join('')
+    + (r.discarded || []).map(d => die(d, false)).join('');
   return `<div class="card"><div class="rollcard ${cls}"><div class="big">${r.total}</div><div>
     <div><b>${esc(r.expr)}</b>${r.advantage !== 'none' ? ` · ${r.advantage === 'adv' ? 'advantage' : 'disadvantage'}` : ''}${r.reason ? ' · ' + esc(r.reason) : ''}</div>
     <div>${dice}${r.modifier ? `<span class="die">${sgn(r.modifier)}</span>` : ''}</div>
@@ -192,12 +195,12 @@ document.addEventListener('click', async e => {
   const b = e.target.closest('[data-act]'); if (!b) return;
   const a = b.dataset.act;
   try {
-    if (a === 'combat') { const r = await runTool('start_combat', { encounter_id: +b.dataset.id, include_party: true }); toast(r.type === 'error' ? '⚠️ ' + r.message : '🛡️ Initiative rolled!'); showView('table'); }
+    if (a === 'combat') { const r = await runTool('start_combat', { encounter_id: +b.dataset.id, include_party: true }); toast(r.type === 'error' ? '⚠️ ' + esc(r.message) : '🛡️ Initiative rolled!'); showView('table'); }
     if (a === 'loot') addCards([await runTool('generate_loot', { party_level: +b.dataset.lvl })]);
     if (a === 'print') { const j = await runTool('queue_print', { item_name: b.dataset.name, item_type: b.dataset.type || 'miniature', source_id: b.dataset.id ? +b.dataset.id : null }); toast('🖨️ Queued: ' + j.name); }
     if (a === 'pstatus') { await runTool('set_print_status', { id: +b.dataset.id, status: b.dataset.s }); $('#modal').close?.(); }
     loadLibrary();
-  } catch (err) { toast('⚠️ ' + err.message); }
+  } catch (err) { toast('⚠️ ' + esc(err.message)); }
 });
 
 /* ------------------------------------------------------------ dice */
@@ -209,12 +212,19 @@ $('#who').value = store.get('who') || '';
 $('#who').addEventListener('change', () => store.set('who', $('#who').value));
 
 async function rollUi(sides) {
-  const n = Math.max(1, Math.min(20, +$('#dCount').value || 1)), m = +$('#dMod').value || 0;
+  const n = Math.max(1, Math.min(100, +$('#dCount').value || 1)), m = +$('#dMod').value || 0;
   const expr = `${n}d${sides}${m ? (m > 0 ? '+' + m : m) : ''}`;
+  let adv = advMode;
+  if (adv !== 'none' && !(n === 1 && sides === 20)) { adv = 'none'; toast('Advantage only applies to a single d20, so I rolled normally.'); }
   startTumble();
-  const r = await runTool('roll_dice', { expression: expr, advantage: advMode });
-  if (r.type === 'error') { toast('⚠️ ' + r.message); return; }
-  landDie(r, true);
+  try {
+    const r = await runTool('roll_dice', { advantage: adv, expression: expr });
+    if (r.type === 'error') throw new Error(r.message);
+    landDie(r, true);
+  } catch (e) {
+    clearInterval(tumbling); $('#bigDie').classList.remove('rolling');  // don't leave the die tumbling forever
+    toast('⚠️ ' + esc(e.message));
+  }
 }
 let tumbling = null;
 function startTumble() {
@@ -247,7 +257,7 @@ async function loadCombat() {
     $('#startBtn').onclick = async () => {
       const encs = await api('/api/items?kind=encounter');
       const r = await runTool('start_combat', { encounter_id: encs[0]?.id || null, include_party: true });
-      if (r.type === 'error') toast('⚠️ ' + r.message); loadCombat();
+      if (r.type === 'error') toast('⚠️ ' + esc(r.message)); loadCombat();
     };
     return;
   }
@@ -266,7 +276,7 @@ $('#combat').addEventListener('click', async e => {
   const hp = e.target.closest('[data-hp]'), cond = e.target.closest('[data-cond]');
   if (hp) {
     const v = parseInt(prompt(hp.dataset.hp === '-' ? `Damage to ${hp.dataset.n}?` : `Heal ${hp.dataset.n} by?`), 10);
-    if (v > 0) { const r = await runTool('combat_hp', { target: hp.dataset.n, delta: hp.dataset.hp === '-' ? -v : v }); if (r.type === 'error') toast('⚠️ ' + r.message); loadCombat(); }
+    if (v > 0) { const r = await runTool('combat_hp', { target: hp.dataset.n, delta: hp.dataset.hp === '-' ? -v : v }); if (r.type === 'error') toast('⚠️ ' + esc(r.message)); loadCombat(); }
   }
   if (cond) {
     const c = prompt(`Toggle condition on ${cond.dataset.cond} (e.g. prone, stunned):`); if (!c) return;
