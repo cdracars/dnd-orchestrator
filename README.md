@@ -50,3 +50,12 @@ Run `python test_smoke.py` after changes.
 ## Credits
 - **Juan Pablo** ([Luma-Isla Studios](https://luma-isla.com)): original author.
 - **Cody Dracars**: editor and co-author.
+
+## Docker
+
+```bash
+cp .env.example .env   # optional: add ANTHROPIC_API_KEY
+docker compose up --build
+```
+
+Open http://localhost:8080. The campaign database lives in the `dnd-data` volume.
