@@ -175,10 +175,15 @@ def end_combat():
 
 
 # ---- printing
+PRINT_KEYS = ("type", "id", "name", "item_type", "source_id", "scale_mm", "quantity", "notes", "status")
+
+
 def _post_webhook(job):
+    """POST the job (documented payload only) to PRINT_WEBHOOK_URL: on queueing and again on every status change."""
     url = os.environ.get("PRINT_WEBHOOK_URL")
     if not url:
         return
+    job = {k: job.get(k) for k in PRINT_KEYS}
 
     def go():
         try:
@@ -193,7 +198,7 @@ def _post_webhook(job):
 
 
 def queue_print(item_name, item_type="miniature", source_id=None, scale_mm=28, quantity=1, notes=""):
-    job = {"type": "print", "name": item_name, "item_type": item_type, "source_id": source_id, "scale_mm": scale_mm,
+    job = {"type": "print", "name": item_name, "item_type": item_type, "source_id": source_id, "scale_mm": int(scale_mm or 28),
            "quantity": int(quantity or 1), "notes": notes, "status": "queued",
            "webhook": "pending" if os.environ.get("PRINT_WEBHOOK_URL") else "not configured"}
     job["id"] = db.save_item("print", item_name, job)
@@ -207,6 +212,10 @@ def set_print_status(id, status):
     j = db.update_item(id, {"status": status})
     if not j:
         raise ValueError(f"No print job {id}")
+    if os.environ.get("PRINT_WEBHOOK_URL"):
+        j["webhook"] = "pending"
+        db.update_item(id, {"webhook": "pending"})
+        _post_webhook(j)
     return j
 
 
@@ -263,6 +272,9 @@ TOOL_SCHEMAS = [
      "input_schema": _obj({"target": {"type": "string"}, "condition": {"type": "string"}, "active": {"type": "boolean"}},
                           ["target", "condition"])},
     {"name": "end_combat", "description": "End the current combat.", "input_schema": _obj({})},
+    {"name": "set_print_status", "description": "Update a print job's status (queued, printing, done or failed) by its id.",
+     "input_schema": _obj({"id": {"type": "integer"}, "status": {"type": "string", "enum": ["queued", "printing", "done", "failed"]}},
+                          ["id", "status"])},
     {"name": "queue_print", "description": "Queue a 3D print job (miniature or terrain) in the Print Forge.",
      "input_schema": _obj({"item_name": {"type": "string"}, "item_type": {"type": "string", "enum": ["miniature", "terrain", "prop", "handout"]},
                            "source_id": {"type": "integer"}, "scale_mm": {"type": "integer"}, "quantity": {"type": "integer"},

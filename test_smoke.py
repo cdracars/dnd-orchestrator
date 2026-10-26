@@ -67,4 +67,42 @@ with TestClient(server.app) as client:
     items = client.get("/api/items?kind=character").json()
     assert len(items) == 1
     assert client.delete(f"/api/items/{items[0]['id']}").json()["ok"]
+
+import threading  # noqa: E402
+
+# Print Forge webhook fires on queue and on each status change, and Claude can set status
+import json  # noqa: E402
+import tools  # noqa: E402
+from http.server import BaseHTTPRequestHandler, HTTPServer  # noqa: E402
+
+posts = []
+
+
+class Hook(BaseHTTPRequestHandler):
+    def do_POST(self):
+        posts.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+        self.send_response(200)
+        self.end_headers()
+
+    def log_message(self, *a):
+        pass
+
+
+srv = HTTPServer(("127.0.0.1", 0), Hook)
+threading.Thread(target=srv.serve_forever, daemon=True).start()
+os.environ["PRINT_WEBHOOK_URL"] = f"http://127.0.0.1:{srv.server_port}/hook"
+assert tools.call_tool("queue_print", {"item_name": "Goblin x3", "scale_mm": "28<img>"})["type"] == "error"
+job = tools.call_tool("queue_print", {"item_name": "Ogre", "scale_mm": "32"})
+assert job["scale_mm"] == 32
+tools.call_tool("set_print_status", {"id": job["id"], "status": "done"})
+import time  # noqa: E402
+
+for _ in range(50):
+    if len(posts) >= 2:
+        break
+    time.sleep(0.1)
+assert sorted(p["status"] for p in posts if p["name"] == "Ogre") == ["done", "queued"]
+assert set(posts[0]) == set(tools.PRINT_KEYS)
+assert any(t["name"] == "set_print_status" for t in tools.TOOL_SCHEMAS)
+os.environ.pop("PRINT_WEBHOOK_URL")
 print("ALL SMOKE TESTS PASSED")
