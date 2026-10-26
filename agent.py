@@ -25,11 +25,12 @@ Rules of the table:
 - For big asks ("prep tonight's session") chain several tools: encounter, NPC, loot, a note.
 - Use 5e (2014 SRD-style) rules. Warm, playful tabletop energy. Short and vivid.
 
-Current party in the Archive: {party}"""
+Heroes are saved to the Archive but only the party (party_add / party_remove) takes part in combat.
+Current party: {party}"""
 
 
 def _party():
-    heroes = db.list_items("character")
+    heroes = tools.party_members()
     return ", ".join(f"{h['name']} (L{h['level']} {h['race']} {h['class']}, id {h['id']})" for h in heroes) or "none yet"
 
 
@@ -74,6 +75,7 @@ HELP = (
     "- `character level 3 tiefling warlock`\n"
     "- `npc innkeeper`, `loot level 6 hoard`\n"
     "- `start combat`, `next turn`, `end combat`, `note: title - text`, `what do we have`\n"
+    "- `party`, `add Mara to the party`, `remove Mara from the party`\n"
     "Add an `ANTHROPIC_API_KEY` to unlock full natural-language orchestration."
 )
 THEME_WORDS = {"undead": "undead", "goblin": "goblinoid", "beast": "beast", "animal": "beast", "giant": "giant", "dragon": "dragon",
@@ -115,6 +117,17 @@ def offline_agent(cid, text, who, emit):
         title, _, body = text[5:].partition("-")
         call("save_note", title=title.strip() or "Note", text=(body or title).strip())
         return "Inked into the Archive. 🪶", cards
+    m = re.match(r"(?:add|put|recruit)\s+(.+?)\s+(?:to|in|into)\s+(?:the\s+)?party$", t)
+    if m:
+        call("party_add", character=m.group(1))
+        return "The party grows. 🛡️", cards
+    m = re.match(r"(?:remove|drop|kick)\s+(.+?)\s+from\s+(?:the\s+)?party$", t)
+    if m:
+        call("party_remove", character=m.group(1))
+        return "They step out of the torchlight.", cards
+    if re.fullmatch(r"(?:show |list |who(?:'s| is) in )?(?:the )?party\??", t):
+        call("party_list")
+        return "Your adventurers, assembled.", cards
     dice = re.search(r"\b(\d*d\d+(?:k[hl]\d+)?(?:[+-]\d+)*)\b", t)
     if dice and (_has("roll", t) or re.fullmatch(r"\s*" + re.escape(dice.group(1)) + r"\s*", t)):
         adv = "advantage" if "advantage" in t and "dis" not in t else "disadvantage" if "disadvantage" in t else "none"

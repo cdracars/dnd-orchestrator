@@ -7,6 +7,7 @@ os.environ.pop("ANTHROPIC_API_KEY", None)
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+import db  # noqa: E402
 import engine  # noqa: E402
 import server  # noqa: E402
 
@@ -68,8 +69,16 @@ with TestClient(server.app) as client:
         assert loot["type"] == "loot" and loot["id"]
         assert chat("roll 2d6+3")["cards"][0]["type"] == "roll"
         assert chat("note: Crypt hook - the bell tolls thrice")["cards"][0]["type"] == "note"
+        # party is separate from the Archive: an unrecruited hero must not join combat
+        assert chat("character level 2 human fighter")["cards"][0]["in_party"] is False
+        assert chat("party")["cards"][0]["members"] == []
+        solo = chat("start combat")["cards"][0]
+        assert solo["active"] and not any(c["side"] == "party" for c in solo["combatants"])
+        chat("end combat")
+        assert chat(f"add {hero['name']} to the party")["cards"][0]["members"][0]["id"] == hero["id"]
+        assert [m["id"] for m in client.get("/api/party").json()] == [hero["id"]]
         combat = chat("start combat")["cards"][0]
-        assert combat["active"] and any(c["side"] == "party" for c in combat["combatants"])
+        assert combat["active"] and [c["name"] for c in combat["combatants"] if c["side"] == "party"] == [hero["name"]]
         foe = next(c for c in combat["combatants"] if c["side"] == "foe")
         hit = client.post("/api/tool/combat_hp", json={"args": {"target": foe["name"], "delta": -5}}).json()
         assert hit["type"] == "combat"
@@ -79,8 +88,9 @@ with TestClient(server.app) as client:
         assert client.post("/api/tool/set_print_status", json={"args": {"id": job["id"], "status": "printing"}}).json()["status"] == "printing"
         assert client.post("/api/tool/combat_hp", json={"args": {"target": "nobody", "delta": 1}}).json()["type"] == "error"
         assert chat("end combat")["cards"][0]["active"] is False
+        assert chat(f"remove {hero['name']} from the party")["cards"][0]["members"] == []
         state = chat("what do we have")["cards"][0]
-        assert state["type"] == "state" and state["character"] and state["encounter"]
+        assert state["type"] == "state" and state["character"] and state["encounter"] and state["party"] == []
         assert "offline" in chat("gibberish")["reply"].lower()
         seen = set()
         for _ in range(60):
@@ -90,8 +100,22 @@ with TestClient(server.app) as client:
                 break
         assert {"tool", "tool_start", "thinking"} <= seen, seen
     items = client.get("/api/items?kind=character").json()
-    assert len(items) == 1
-    assert client.delete(f"/api/items/{items[0]['id']}").json()["ok"]
+    assert len(items) == 2 and not any(i["in_party"] for i in items)
+    for i in items:
+        assert client.delete(f"/api/items/{i['id']}").json()["ok"]
+
+# party: concurrent adds are not lost, and campaign_state lists members beyond its 30-hero summary window
+import threading  # noqa: E402
+import tools  # noqa: E402
+
+heroes = [tools.create_character(character_class="Fighter")["id"] for _ in range(35)]
+ts = [threading.Thread(target=tools.party_add, args=(h,)) for h in heroes]
+[t.start() for t in ts]
+[t.join() for t in ts]
+assert sorted(m["id"] for m in tools.party_members()) == sorted(heroes)
+assert {m["id"] for m in tools.campaign_state()["party"]} == set(heroes)
+for h in heroes:
+    db.delete_item(h)
 
 # offline router: whole-word matching, longest race wins
 import agent  # noqa: E402
